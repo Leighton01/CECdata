@@ -2,8 +2,11 @@ library(readxl)
 library(tidyverse)
 library(webchem)
 
-# clean.edf has all the cleaned entries that does not start with a number
-# clean.cas has all the cleaned entries that does start with a number
+# cid.map.cl2 is the reference df, 'Chemical Name' col + cid (retrieved),
+#  no dupes or na
+
+# clean.edf has all the cleaned entries that do not start with a number
+# clean.cas has all the cleaned entries that do start with a number
 # clean.cas2 is clean.cas + cid, filtered for rows with a valid cid
       # (ie no substances)
 
@@ -32,120 +35,86 @@ col.new[col.new=="CAS Registry # (or EDF Substance ID)"] <- "CAS"
 colnames(raw.trimmed) <- col.new
 clean <- raw.trimmed
 
-# Split into CAS and others ------------------------------------------
-# all that do not start with a number (mostly EDF)
-clean.edf <- clean %>% filter(!grepl("^[0-9]+", CAS))
-
-# all that start with a number (mostly CAS)
-clean.cas <- clean %>% filter(grepl("^[0-9]+", CAS))
-
-
 # Add identifiers (PubChem) ------------------------------------------------
+## Inchikey Route (DEPRECATED) ---------------------------------------------------------
 # # Add inchkey to CAS.. not sure if necessary? wait for email
 # # Some inchikey not returning cid, though their CAS number does, might be some chemistry thing?
 # clean.cas$inch <- unlist(cts_convert(clean.cas$CAS, from = "CAS", to = "InChIKey",
 #             match = "first", verbose = FALSE))
 # # Need answer from email qs before doing the same to the EDF keys
 
+
+## CAS Route (DEPRECATED) --------------------------------------------------------------
+# Split into CAS and others
+# all that do not start with a number (mostly EDF)
+clean.edf <- clean %>% filter(!grepl("^[0-9]+", CAS))
+
+# all that start with a number (mostly CAS)
+clean.cas <- clean %>% filter(grepl("^[0-9]+", CAS))
+
 # get pubchem cid directly from cas
 # cid <- get_cid(clean.cas$CAS, from = "cas", domain = "compound",
 #                match = "first", verbose = FALSE)
 
-# When there are multiple CIDs, get one with highest  LiteratureCount
+# When there are multiple CIDs, get one with highest LiteratureCount
 # not perfect, but good enough?
-cid_map <- get_cid(
-  clean.cas$CAS,
-  from = "cas",
-  domain = "compound",
+# cid.map <- get_cid(
+#   clean.cas$CAS,
+#   from = "cas",
+#   domain = "compound",
+#   match = "all",
+#   verbose = FALSE
+# )
+#
+# #
+# props <- pc_prop(
+#   cid_map$cid,
+#   properties = "LiteratureCount"
+# )
+#
+# saveRDS(cid.map, file="cid.map.rds")
+# saveRDS(props, file="props.rds")
+# load("cid.map.rds")
+# load("props.rds")
+#
+#
+
+# props.max <- props %>% group_by(CID) %>%
+#   mutate(LiteratureCount = coalesce(LiteratureCount, -Inf)) %>%
+#   slice_max(order_by = LiteratureCount, n = 1)
+#
+# cid.best <- cid.map %>%
+#   left_join(props.max, join_by("cid"=="CID")) %>%
+#   ungroup()
+
+# # Some values return na for CID because it's not CAS (actually pubchem SIDs) ,
+# # or the CAS is actually for a substance (thus not having a COMPOUND ID but SID)
+
+## Name Route -------------------------------------------------------------
+# Obtain CID from chemical name col (may contain name or formula, but both work)
+cid.map2 <- get_cid(
+  clean$`Chemical Name`,
   match = "all",
-  verbose = FALSE
-)
+  verbose = FALSE)
 
-#
-props <- pc_prop(
-  cid_map$cid,
-  properties = "LiteratureCount"
-)
+saveRDS(cid.map2, file="cid.map2.rds")
 
-saveRDS(cid_map, file="cid_map.rds")
-saveRDS(props, file="props.rds")
+# surprisingly, works better than CAS, returns only 1 CID for all compounds
+# substances and ill-formatted names return NA (69 NAs)
+cid.map2 %>% filter(is.na(cid)) %>% length
 
-cid_best <- cid_map %>%
-  left_join(props, join_by("cid"=="CID")) %>%
-  mutate(LiteratureCount = coalesce(LiteratureCount, -Inf)) %>%
-  group_by(query) %>%
-  slice_max(LiteratureCount, n = 1, with_ties = FALSE) %>%
-  ungroup()
+cid.map.cl <- cid.map2 %>% filter(!is.na(cid))
+saveRDS(cid.map.cl, file="cid.map.cl.rds")
+# There are some duplicates, such as ALPHA&BETA, CIS&TRANS, BETA&GAMMA,
+# yields same result when searached manually? not yet filled
+# Only 3 pairs, will remove for now
 
-
-
-# Some values return na for CID because it's not CAS (actually pubchem SIDs) ,
-# or the CAS is actually for a substance (thus not having a COMPOUND ID but SID)
-
-# Add and filter for records with valid CIDs
-clean.cas2 <- left_join(clean.cas, cid, join_by("CAS"=="query")) %>%
-                  filter(!is.na(cid))
+library(janitor)
+dupes <- get_dupes(cid.map.cl, cid)$cid
+cid.map.cl2 <- cid.map.cl %>% filter(!(cid %in% dupes))
+saveRDS(cid.map.cl2, file="cid.map.cl2.rds")
 
 
-# Scrape for other properties (PubChem) -----------------------------------
-## Description -------------------------------------------------------------
-# Agrochemical Information or Biologic Information? try
-a1 <- pc_sect(1988, "Agrochemical Information", domain = "compound", verbose=F)
-a2 <- pc_sect(1988, "Biologic Information", domain = "compound", verbose=F)
 
-## Physical Properties -----------------------------------------------------
-# look at return and concatenate, connection often timeout
-# # try with 1; success
-# a1 <- pc_sect(1988, "Color / Form", domain = "compound", verbose=F)
-# a2 <- pc_sect(1988, "Odor", domain = "compound", verbose=F)
-# a3 <- pc_sect(1988, "Boiling Point", domain = "compound", verbose=F)
-# paste(unlist(list(a1$Result, a2$Result, paste("Boiling Point: ", a3$Result))), collapse = ". ")
-#
-# # try with 2; success
-# b1 <- pc_sect(c(1988,176), "Color / Form", domain = "compound", verbose=F)
-# b2 <- pc_sect(c(1988,176), "Odor", domain = "compound", verbose=F)
-# b3 <- pc_sect(c(1988,176), "Boiling Point", domain = "compound", verbose=F)
-#
-# b0 <- bind_rows(b1,b2,b3)
-# b <- b0 %>% group_by(CID) %>% summarise(paste(Result, collapse=". "))
 
-pp.colour <- pc_sect(clean.cas2$cid, "Color / Form", domain = "compound", verbose=F)
-
-pp.odor <- pc_sect(clean.cas2$cid, "Odor", domain = "compound", verbose=F)
-pp.bp <- pc_sect(clean.cas2$cid, "Boiling Point", domain = "compound", verbose=F)
-pp.mp <- pc_sect(clean.cas2$cid, "Melting Point", domain = "compound", verbose=F)
-pp.decompn <- pc_sect(clean.cas2$cid, "Decomposition", domain = "compound", verbose=F)
-
-# Not sure why some are NA? sampled a few and they do return a result??
-# pc_sect(2078, "Decomposition", domain = "compound", verbose=F)
-# try as numeric ?
-c(
-  sum(is.na(pp.colour$Result)),
-  sum(is.na(pp.odor$Result)),
-  sum(is.na(pp.bp$Result)),
-  sum(is.na(pp.mp$Result)),
-  sum(is.na(pp.decompn$Result))
-)
-
-na.colour.cid
-pp.colour
-
-# the specific cids from cas does not return anything even though...
-# some have other cids that MIGHT have the info, last match better?
-get_cid("116-06-3", from = "cas", domain="compound", match = "all", verbose = FALSE)
-pc_sect(3224, "Color / Form", verbose=F)
-
-try <- get_cid("21259-20-1", from = "cas", domain="compound", match = "all", verbose = FALSE)
-
-try.prop <- pc_prop(unlist(try$cid))
-
-try.prop %>% select()
-cid.best <- try.prop$CID[
-  which.max(replace(try.prop$LiteratureCount, is.na(try.prop$LiteratureCount), -Inf))
-]
-# rank by LiteratureCount?
-
-#
-# try.syn <- pc_synonyms(unlist(try$cid), from = "cid", match = "all", verbose = F)
-# # or go by most synonyms lol
 
