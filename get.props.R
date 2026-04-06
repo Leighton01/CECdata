@@ -11,6 +11,25 @@ ping_service(
 
 load(cid.map.cl2)
 
+
+# Function: Group and Save RDS --------------------------------------------
+
+group.save <- function(df){
+
+  df.comb <- df %>% group_by(CID) %>%
+    summarise(Result = paste(Result, collapse = ".\n"), .groups = "drop")
+
+  df.comb <- df.comb %>% left_join(cid.map.cl, join_by (CID == cid))
+
+  saveRDS(df.comb, paste(get_name(df), ".RDS"))
+
+  write.csv(df.comb, paste(get_name(df), ".csv"),
+            fileEncoding="Windows-1252", row.names = FALSE)
+
+}
+
+
+
 # Chemical Properties -----------------------------------------------------
 
 desc1 <- pc_sect(cid.map.cl2$cid, "Agrochemical Information", domain = "compound", verbose=F)
@@ -60,18 +79,120 @@ pp <- rbind(pp.colour2, pp.odor2, pp.bp3, pp.mp3, pp.decompn2)
 pp.comb <- pp %>% group_by(CID) %>%
   summarise(Result = paste(Result, collapse = ".\n"), .groups = "drop")
 
-pp.by.name <- pp.comb %>% left_join(cid.map.cl, join_by (CID == cid)) %>% glimpse
-write.csv(pp.by.name, "pp.name.csv", fileEncoding="Windows-1252", row.names = FALSE)
+saveRDS(pp.comb, "pp.comb.RDS")
+#
+# pp.by.name <- pp.comb %>% left_join(cid.map.cl, join_by (CID == cid)) %>% glimpse
+# write.csv(pp.by.name, "pp.name.csv", fileEncoding="Windows-1252", row.names = FALSE)
+
+
 
 # Chemical Releases -------------------------------------------------------
 fate.exp <- pc_sect(cid.map.cl2$cid, "Environmental Fate/Exposure Summary",
                 domain = "compound", verbose=F)
+# One result per CID
+
+saveRDS(fate.exp, "fate.exp.RDS")
 
 
+# Environmental Effects ---------------------------------------------------
 fate <- pc_sect(cid.map.cl2$cid, "Environmental Fate",
                     domain = "compound", verbose=F)
 
+saveRDS(fate, "fate.RDS")
+
+# Human Health Effects ----------------------------------------------------
+signs <- pc_sect(cid.map.cl2$cid, "Signs and Symptoms",
+                 domain = "compound", verbose=F)
+saveRDS(signs, "signs.RDS")
+
+# Sources -----------------------------------------------------------------
+# Chemical Use (Source)
+# Sources Facility / Location
+# Source Industry
 
 
 
 
+
+
+
+# Water Sources and Watersheds ------------------------------------------
+water <- pc_sect(cid.map.cl2$cid, "Environmental Water Concentrations",
+        domain = "compound", verbose=F)
+saveRDS(water, "water.RDS")
+
+# Drinking Water Sources
+drink <-
+
+# Receiving Watersheds, paragraph 2
+shed <-
+
+
+# Chemical Entry Points ---------------------------------------------------
+
+12.2.8 Environmental Fate (S2P1)
+
+
+# Monitoring Requirements -------------------------------------------------
+req <- pc_sect(cid.map.cl2$cid, "Regulatory Information",
+                 domain = "compound", verbose=F)
+
+saveRDS(req, "req.RDS")
+# Removal Technologies ----------------------------------------------------
+tech <- pc_sect(cid.map.cl2$cid, "Environmental Biodegradation",
+               domain = "compound", verbose=F)
+
+saveRDS(tech, "tech.RDS")
+# Safe Production ---------------------------------------------------------
+safe <- pc_sect(cid.map.cl2$cid, "Storage Conditions",
+                domain = "compound", verbose=F)
+saveRDS(safe, "safe.RDS")
+# Safe Use ----------------------------------------------------------------
+use <- pc_sect(cid.map.cl2$cid, "Personal Protective Equipment",
+               domain = "compound", verbose=F)
+saveRDS(use, "use.RDS")
+11.5.2 Personal Protective Equipment (PPE)
+
+
+# Safe Disposal -----------------------------------------------------------
+
+
+11.3.2 Disposal Methods (P4(
+
+# Consumer Products -------------------------------------------------------
+
+
+  9.1.1 Household Products
+
+
+
+
+# Exposure Routes ---------------------------------------------------------
+
+
+12.1.9 Exposure Routes
+
+
+# Exposure Baseline -------------------------------------------------------
+
+
+8.3 Metabolism / Metabolites (P2)
+
+
+# Transgenerational Effects -----------------------------------------------
+
+
+
+12.1.8 Health Effects
+
+# Hormetic Effects --------------------------------------------------------
+
+
+12.1.6 Evidence for Carcinogenicity
+
+
+
+# H2O Sol. ----------------------------------------------------------------
+
+
+12.2.13 Volatilization from Water / Soil
