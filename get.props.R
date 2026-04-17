@@ -12,27 +12,31 @@ ping_service(
 load(cid.map.cl2)
 
 
-# Function: Group and Save RDS --------------------------------------------
-
-group.save <- function(df){
-
-#   Group results for same CID
-  df.comb <- df %>%
-    tidyr::drop_na(Result) %>% group_by(CID) %>%
-    summarise(Result = paste(Result, collapse = ".\n"), .groups = "drop")
-
-  #   Add name to table
-  df.comb <- df.comb %>% left_join(cid.map.cl, join_by (CID == cid))
-
-#   Save RDS and csv
-  filenameRDS <- paste("RDS/", deparse(substitute(df)),".RDS")
-  saveRDS(df.comb, filenameRDS)
-
-  filenameCSV <- paste("CSV/", deparse(substitute(df)),".csv")
-  write.csv(df.comb, filenameCSV,
-            fileEncoding="Windows-1252", row.names = FALSE)
-
-}
+# # Function: Group and Save RDS --------------------------------------------
+#
+# # IPR: compiling a package
+# # File saving currently would not work in a loop, due to non standard eval :(
+# # thus combine to one df, the output
+#
+# group.save <- function(df){
+#
+# #   Group results for same CID
+#   df.comb <- df %>%
+#     tidyr::drop_na(Result) %>% group_by(CID) %>%
+#     summarise(Result = paste(Result, collapse = ".\n"), .groups = "drop")
+#
+#   #   Add name to table
+#   df.comb <- df.comb %>% left_join(cid.map.cl, join_by (CID == cid))
+#
+# #   Save RDS and csv
+#   filenameRDS <- paste("RDS/", deparse(substitute(df)),".RDS")
+#   saveRDS(df.comb, filenameRDS)
+#
+#   filenameCSV <- paste("CSV/", deparse(substitute(df)),".csv")
+#   write.csv(df.comb, filenameCSV,
+#             fileEncoding="Windows-1252", row.names = FALSE)
+#
+# }
 
 
 # Retrieve Column Data ----------------------------------------------------
@@ -40,6 +44,8 @@ group.save <- function(df){
 
 desc1 <- pc_sect(cid.map.cl2$cid, "Agrochemical Information", domain = "compound", verbose=F)
 desc2 <- pc_sect(cid.map.cl2$cid, "Biologic Information", domain = "compound", verbose=F)
+
+
 
 ## Physical Properties -----------------------------------------------------
 pp.colour <- pc_sect(cid.map.cl2$cid, "Color / Form", domain = "compound", verbose=F)
@@ -190,9 +196,10 @@ h20 <- pc_sect(cid.map.cl2$cid, "Volatilization from Water / Soil",
                       domain = "compound", verbose=F)
 
 
-# Save and Combine --------------------------------------------------------
-# Group within each, save each as RDS and CSV
-list1 <- list(pp.comb = pp.comb,
+
+# Combine -----------------------------------------------------------------
+list1 <- lst(
+              pp.comb,
               fate.exp,
               fate,
               signs,
@@ -200,7 +207,7 @@ list1 <- list(pp.comb = pp.comb,
               req,
               tech,
               safe,
-              uses,
+              # uses, # no result
               disposal,
               consum,
               exp.routes,
@@ -209,12 +216,43 @@ list1 <- list(pp.comb = pp.comb,
               carcin,
               h20)
 
-for (l in list1) {
-  if ("Result" %in% colnames(l)){
-    group.save(l)
-  }
+# check if any is empty (prob shouldve checked earlier)
+which((vapply(list1, function(x) !("Result" %in% colnames(x)), logical(1))))
+
+# Drop unneeded columns
+list2 <- lst()
+
+# Clean
+for (i in seq_along(list1)){
+
+#  remove unneeded cols
+ df.comb1 <- list1[[i]] %>% select("CID", "Result")
+
+# drop na, group content by CID
+ df.comb2 <- df.comb1 %>%
+   tidyr::drop_na(Result) %>% group_by(CID) %>%
+   summarise(Result = paste(Result, collapse = ".\n"), .groups = "drop")
+
+ #  rename based on tbl names
+ colnames(df.comb2) <- c("CID", names(list1)[i])
+ list2[[i]] <- df.comb2
+
 }
 
-class(list1)
-summary(list1)
-saveRDS(list1, "list1.RDS")
+# check the resulting dfs
+sapply(list2, function(x) nrow(x))
+lapply(list2, function(x) colnames(x))
+
+# saveRDS(list2, "list2.RDS")
+load("list2.RDS")
+
+# Merge
+merged.pc.df <- purrr::reduce(list2, full_join, by = "CID")
+# Check all cids are unique
+sum(duplicated(merged.pc.df))
+
+# Add name
+merged.pc.name <- merged.pc.df %>% left_join(cid.map.cl, join_by (CID == cid))
+
+write.csv(merged.pc.name, "merged.pc.df.csv",
+          fileEncoding="Windows-1252", row.names = FALSE)

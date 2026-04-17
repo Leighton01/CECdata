@@ -1,6 +1,7 @@
 library(readxl)
 library(tidyverse)
 library(webchem)
+library(janitor)
 
 # cid.map.cl2 is the reference df, 'Chemical Name' col + cid (retrieved),
 #  no dupes or na
@@ -109,7 +110,7 @@ saveRDS(cid.map.cl, file="cid.map.cl.rds")
 # yields same result when searached manually? not yet filled
 # Only 3 pairs, will remove for now
 
-library(janitor)
+
 dupes <- get_dupes(cid.map.cl, cid)$cid
 cid.map.cl2 <- cid.map.cl %>% filter(!(cid %in% dupes))
 saveRDS(cid.map.cl2, file="cid.map.cl2.rds")
