@@ -2,6 +2,11 @@ library(readxl)
 library(tidyverse)
 library(webchem)
 
+# id.all2 contains records that have either CID or inchikey or cas (cid.map.cl2 has CID from name, cas.id has CID or inchikey from CAS)
+# attn contains records that require manual attention
+
+
+
 # Ping to see if api works
 ping_service(
   service = c("bcpc", "chebi", "chembl", "cs", "cs_web", "cir", "cts", "etox", "fn",
@@ -9,54 +14,7 @@ ping_service(
   apikey = NULL
 )
 
-## Get CID from CAS --------------------------------------------------------------
-# cid.map.cl2 is the reference df, 'Chemical Name' col + cid (retrieved),
-#  no dupes or na
 
-# clean.edf has all the cleaned entries that do not start with a number
-# clean.cas has all the cleaned entries that do start with a number
-# clean.cas2 is clean.cas + cid, filtered for rows with a valid cid
-# (ie no substances)
-# Split into CAS and others
-# all that do not start with a number (mostly EDF)
-clean.edf <- clean %>% filter(!grepl("^[0-9]+", CAS))
-
-# all that start with a number (mostly CAS)
-clean.cas <- clean %>% filter(grepl("^[0-9]+", CAS))
-
-# get pubchem cid directly from cas
-cas.to.cid <- get_cid(clean.cas$CAS, from = "cas", domain = "compound",
-               match = "first", verbose = FALSE)
-
-
-
-# # When there are multiple CIDs, get one with highest LiteratureCount
-# # not perfect, but good enough?
-# cid.map <- get_cid(
-#   clean.cas$CAS,
-#   from = "cas",
-#   domain = "compound",
-#   match = "all",
-#   verbose = FALSE
-# )
-#
-# #
-# props <- pc_prop(
-#   cid_map$cid,
-#   properties = "LiteratureCount"
-# )
-
-
-# props.max <- props %>% group_by(CID) %>%
-#   mutate(LiteratureCount = coalesce(LiteratureCount, -Inf)) %>%
-#   slice_max(order_by = LiteratureCount, n = 1)
-#
-# cid.best <- cid.map %>%
-#   left_join(props.max, join_by("cid"=="CID")) %>%
-#   ungroup()
-
-# # Some values return na for CID because it's not CAS (actually pubchem SIDs) ,
-# # or the CAS is actually for a substance (thus not having a COMPOUND ID but SID)
 
 ## Get CID from Chemical Name-------------------------------------------------
 # Obtain CID from chemical name col (may contain name or formula, but both work)
@@ -85,24 +43,70 @@ cid.map.cl2 <- cid.map.cl %>% filter(!(cid %in% dupes))
 
 saveRDS(cid.map.cl2, file="cid.map.cl2.rds")
 
-# Remove the chemicals that are in the dupe list (those need manual attnetion)
-diff.pc.name1 <- setdiff(clean$`Chemical Name`, merged.ordered$`Chemical Name`)
+
+# Find the CIDs that couldn't be found via name
+# Get the remaining chemicals
+diff.pc.name1 <- setdiff(clean$`Chemical Name`, cid.map.cl2$query)
+# remove dupes (ie the ones that need manual attention) from them
 diff.pc.name2 <- diff.pc.name1[which(!(diff.pc.name1 %in% dupes$query))]
 
-# Add CAS to the list
+# Add CAS
 diff.pc1 <- tibble(`Chemical Name`=diff.pc.name2)
 diff.pc2 <- diff.pc1 %>% left_join(clean %>% select(`Chemical Name`, CAS),
                                    join_by(`Chemical Name` == `Chemical Name`))
 
-# Remove anything that's don't start with a number and contains a dash
+# Remove anything that don't start with a number and contains a dash
 # (format of CAS)
 diff.pc3 <- diff.pc2 %>% filter(grepl("^[0-9]+.*-", CAS))
 
-# Look up inchikey from this list, using CAS
-cas.inchi1 <- cts_convert(diff.pc3$CAS, from = "CAS", to = "PubChem CID")
-cas.inchi2 <- cts_convert(diff.pc3$CAS, from = "CAS", to = "InChIKey")
+# Look up inchikey and CID from this list, using CAS
+cas.cid1 <- cts_convert(diff.pc3$CAS, from = "CAS", to = "PubChem CID")
+cas.cid2 <- tibble(CAS = names(cas.cid1),
+                   CID = sapply(cas.cid1, function(x) unlist(x[[1]][1])),
+                   count = lengths(cas.cid1)
+                   )
+cas.cid.uniq <- cas.cid2 %>% filter(count == 1, !is.na(CID)) %>% select(-count)
 
 
+cas.inchi1 <- cts_convert(diff.pc3$CAS, from = "CAS", to = "InChIKey")
+cas.inchi2 <- tibble(CAS = names(cas.inchi1),
+                     InChIKey = sapply(cas.inchi1, function(x) unlist(x[[1]][1])),
+                     count = lengths(cas.inchi1)
+                     )
+cas.inchi.uniq <- cas.inchi2 %>% filter(count == 1, !is.na(InChIKey)) %>%
+  select(-count)
+
+cas.inchi.cid1 <- cts_convert(diff.pc3$CAS, from = "InChIKey", to = "PubChem CID")
+cas.inchi.cid2 <- tibble(InChIKey = names(cas.inchi.cid1),
+                         CID = sapply(cas.inchi.cid1,
+                                      function(x) unlist(x[[1]][1])),
+                         count = lengths(cas.inchi.cid1)
+)
+
+cas.inchi.cid.uniq <- cas.inchi.cid2 %>% filter(count == 1) %>% select(-count)
+
+# Merge as one tibble
+cas.id <- cas.inchi.cid.uniq %>% full_join(cas.cid.uniq, join_by(CAS==CAS)) %>%
+  left_join(clean %>% select(`Chemical Name`, CAS), join_by(CAS==CAS))
+
+# Join both lists (ids obtained by cas and by name)
+id.all1 <- cas.id %>% full_join(cid.map.cl2, join_by(`Chemical Name` == query))
+# check where CIDs are different
+id.dupe <- id.all1 %>% filter(!CID==cid)
+
+# remove dupe
+id.all2 <- setdiff(id.all1, id.dupe) %>% mutate(cCID = coalesce(CID, cid)) %>%
+  select(-c(CID,cid)) %>% rename(CID=cCID)
+
+
+# Capture entries that need manula attnetion
+cas.cid.dupe <- cas.cid2 %>% filter (!count == 1) %>%
+  left_join(clean, join_by(CAS == CAS))
+cas.inchi.dupe <- cas.inchi2 %>% filter (!count == 1) %>%
+  left_join(clean, join_by(CAS == CAS))
+
+attn <- tibble(value = c(dupes$query, cas.cid.dupe$CAS, cas.inchi.dupe$CAS,
+                         id.dupe$CAS)) %>% unique()
 
 # Retrieve Column Data ----------------------------------------------------
 # ID
@@ -334,7 +338,7 @@ merged.ordered <- merged.pc.id %>%
 
 
 # Save
-openxlsx::write.xlsx(merged.ordered, "merged.ordered.xlsx")
+openxlsx::write.xlsx(merged.ordered, "cec_pipeline_data_review_v1.xlsx")
 # writexl::write_xlsx(merged.pc.name, "write.xlsx")
 
 
