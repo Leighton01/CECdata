@@ -1,11 +1,13 @@
 library(readxl)
 library(tidyverse)
 library(webchem)
+library(janitor)
+
+# CTS not working since beginning of May 2026 due to recent cyber attack -May 17 2026
+# run cts relevant lines once fixed
 
 # id.all2 contains records that have either CID or inchikey or cas (cid.map.cl2 has CID from name, cas.id has CID or inchikey from CAS)
 # attn contains records that require manual attention
-
-
 
 # Ping to see if api works
 ping_service(
@@ -14,106 +16,113 @@ ping_service(
   apikey = NULL
 )
 
+# CIR API -----------------------------------------------------------------
+# Get InChIKey from CAS, CIR api
+inch.map.cas.cir <- cir_query(clean$CAS,
+                               representation = "stdinchikey",
+                               match = "all",
+                               verbose = FALSE)
+
+inch.map.cas.cir.uniq <- inch.map.cas.cir %>%
+  group_by(CAS = query) %>%
+  filter(n()==1, !(is.na(stdinchikey))) %>% ungroup() %>%
+  left_join(clean %>%
+              select(`Chemical Name`, CAS),
+            join_by(query == CAS)) %>%
+  rename(InChIKey = stdinchikey) %>%
+  reframe(`Chemical Name`, CAS, InChIKey) %>%
+  mutate(InChIKey = str_replace(InChIKey, "InChIKey=", ""))
 
 
-## Get CID from Chemical Name-------------------------------------------------
-# Obtain CID from chemical name col (may contain name or formula, but both work)
-cid.map2 <- get_cid(
-  clean$`Chemical Name`,
+# PC API ------------------------------------------------------------------
+# Get CID from inchikey (retrieved through CIR)
+cid.map.inch.pc <- get_cid(
+  inch.map.cas.cir.uniq$InChIKey,
+  from = "inchikey",
   match = "all",
   verbose = FALSE)
 
-saveRDS(cid.map2, file="cid.map2.rds")
-
-# surprisingly, works better than CAS, returns only 1 CID for all compounds
-# substances and ill-formatted names return NA (69 NAs)
-cid.map2 %>% filter(is.na(cid)) %>% length
-
-cid.map.cl <- cid.map2 %>% filter(!is.na(cid))
-saveRDS(cid.map.cl, file="cid.map.cl.rds")
-# There are some duplicates, such as ALPHA&BETA, CIS&TRANS, BETA&GAMMA,
-# yields same result when searached manually? not yet filled
-# Only 3 pairs, will remove for now
-
-library(janitor)
-
-# dupes need manual attention
-dupes <- get_dupes(cid.map.cl, cid)
-cid.map.cl2 <- cid.map.cl %>% filter(!(cid %in% dupes))
-
-saveRDS(cid.map.cl2, file="cid.map.cl2.rds")
+cid.map.inch.pc.uniq <- cid.map.inch.pc %>%
+  group_by(InChIKey = query) %>%
+  filter(n()==1, !(is.na(cid))) %>% ungroup() %>%
+  left_join(inch.map.cas.cir.uniq,
+            join_by(InChIKey == InChIKey)) %>%
+  rename(CID = cid) %>%
+  reframe(`Chemical Name`, CAS, CID)
 
 
-# Find the CIDs that couldn't be found via name
-# Get the remaining chemicals
-diff.pc.name1 <- setdiff(clean$`Chemical Name`, cid.map.cl2$query)
-# remove dupes (ie the ones that need manual attention) from them
-diff.pc.name2 <- diff.pc.name1[which(!(diff.pc.name1 %in% dupes$query))]
+# Get CID from chemical name
+cid.map.name.pc <- get_cid(
+  clean$`Chemical Name`,
+  from = "name",
+  match = "all",
+  verbose = FALSE)
 
-# Add CAS
-diff.pc1 <- tibble(`Chemical Name`=diff.pc.name2)
-diff.pc2 <- diff.pc1 %>% left_join(clean %>% select(`Chemical Name`, CAS),
-                                   join_by(`Chemical Name` == `Chemical Name`))
+cid.map.name.pc.uniq <- cid.map.name.pc %>%
+  group_by(`Chemical Name` = query) %>%
+  filter(n()==1, !(is.na(cid))) %>% ungroup() %>%
+  left_join(clean %>%
+              select(`Chemical Name`, CAS),
+            join_by(query == `Chemical Name`)) %>%
+  rename(CID = cid) %>%
+  reframe(`Chemical Name`, CAS, CID)
 
-# Remove anything that don't start with a number and contains a dash
-# (format of CAS)
-diff.pc3 <- diff.pc2 %>% filter(grepl("^[0-9]+.*-", CAS))
+# Get CID from CAS
+cid.map.cas.pc <- get_cid(
+  clean$CAS,
+  from = "cas",
+  match = "all",
+  verbose = FALSE)
 
-# Look up inchikey and CID from this list, using CAS
-cas.cid1 <- cts_convert(diff.pc3$CAS, from = "CAS", to = "PubChem CID")
-cas.cid2 <- tibble(CAS = names(cas.cid1),
-                   CID = sapply(cas.cid1, function(x) unlist(x[[1]][1])),
-                   count = lengths(cas.cid1)
-                   )
-cas.cid.uniq <- cas.cid2 %>% filter(count == 1, !is.na(CID)) %>% select(-count)
+cid.map.cas.pc.uniq <- cid.map.cas.pc %>%
+  group_by(query) %>%
+  filter(n()==1, !(is.na(cid))) %>% ungroup() %>%
+  left_join(clean %>%
+              select(`Chemical Name`, CAS),
+            join_by(query == CAS)) %>%
+  rename(CID = cid, CAS = query) %>%
+  reframe(`Chemical Name`, CAS, CID)
 
+# keep if record unique, OR if duplicate records are the same
+cid.map <- bind_rows(cid.map.inch.pc.uniq,
+                        cid.map.name.pc.uniq,
+                        cid.map.cas.pc.uniq) %>%
+  group_by(`Chemical Name`) %>%
+  filter(n() == 1 | (n() > 1 & n_distinct(across(everything())) == 1)) %>%
+  slice(1) %>% ungroup() %>%
+  select(`Chemical Name`, CID)
+#
+# cid.map.dupes <- get_dupes(cid.map, CID)[,1] %>% mutate(CID = as.numeric(CID))
+cid.map.uniq <- cid.map %>%
+  group_by(CID) %>%
+  filter(n() == 1) %>%
+  ungroup()
 
-cas.inchi1 <- cts_convert(diff.pc3$CAS, from = "CAS", to = "InChIKey")
-cas.inchi2 <- tibble(CAS = names(cas.inchi1),
-                     InChIKey = sapply(cas.inchi1, function(x) unlist(x[[1]][1])),
-                     count = lengths(cas.inchi1)
-                     )
-cas.inchi.uniq <- cas.inchi2 %>% filter(count == 1, !is.na(InChIKey)) %>%
-  select(-count)
-
-cas.inchi.cid1 <- cts_convert(diff.pc3$CAS, from = "InChIKey", to = "PubChem CID")
-cas.inchi.cid2 <- tibble(InChIKey = names(cas.inchi.cid1),
-                         CID = sapply(cas.inchi.cid1,
-                                      function(x) unlist(x[[1]][1])),
-                         count = lengths(cas.inchi.cid1)
-)
-
-cas.inchi.cid.uniq <- cas.inchi.cid2 %>% filter(count == 1) %>% select(-count)
-
-# Merge as one tibble
-cas.id <- cas.inchi.cid.uniq %>% full_join(cas.cid.uniq, join_by(CAS==CAS)) %>%
-  left_join(clean %>% select(`Chemical Name`, CAS), join_by(CAS==CAS))
-
-# Join both lists (ids obtained by cas and by name)
-id.all1 <- cas.id %>% full_join(cid.map.cl2, join_by(`Chemical Name` == query))
-# check where CIDs are different
-id.dupe <- id.all1 %>% filter(!CID==cid)
-
-# remove dupe
-id.all2 <- setdiff(id.all1, id.dupe) %>% mutate(cCID = coalesce(CID, cid)) %>%
-  select(-c(CID,cid)) %>% rename(CID=cCID)
-
-
-# Capture entries that need manula attnetion
-cas.cid.dupe <- cas.cid2 %>% filter (!count == 1) %>%
-  left_join(clean, join_by(CAS == CAS))
-cas.inchi.dupe <- cas.inchi2 %>% filter (!count == 1) %>%
-  left_join(clean, join_by(CAS == CAS))
-
-attn <- tibble(value = c(dupes$query, cas.cid.dupe$CAS, cas.inchi.dupe$CAS,
-                         id.dupe$CAS)) %>% unique()
+attn <- clean %>%
+  filter(!(`Chemical Name` %in% cid.map.uniq$`Chemical Name`)) %>%
+  select(`Chemical Name`)
 
 # Retrieve Column Data ----------------------------------------------------
-# ID
-id_all_type <- pc_prop(cid.map.cl2$cid, properties = c("InChIKey","InChI",
+
+# Add CAS to cid.map
+cas.db <- clean %>% filter(is.cas(clean$CAS)) %>% select(`Chemical Name`, CAS)
+cas.pc <- pc_sect(cid.map.uniq$CID, section = "CAS", verbose = FALSE) %>% filter(!is.na(Result))
+
+# 3 = name, cid, cas
+cid.map3 <- cid.map.uniq %>%
+  left_join(cas.pc, join_by(CID == CID))
+
+# Add InChIKey to cid.map
+
+
+
+#
+id.all <- pc_prop(cid.map$CID, properties = c("InChIKey","InChI",
                                                        "SMILES","IUPACName",
                                                        "MolecularFormula"
-                                                       ), verbose = F)
+                                                       ), verbose = F) %>%
+  left_join(cid.map %>% select(`Chemical Name`, CID), join_by(CID==CID))
+
 # Chemical Properties
 
 desc2 <- pc_sect(cid.map.cl2$cid, "Record Description", domain = "compound", verbose=F)
@@ -157,13 +166,6 @@ pp <- rbind(pp.colour2, pp.odor2, pp.bp3, pp.mp3, pp.decompn2)
 pp.comb <- pp %>% group_by(CID) %>%
   summarise(Result = paste(Result, collapse = ".\n"), .groups = "drop")
 
-# saveRDS(pp.comb, "pp.comb.RDS")
-#
-# pp.by.name <- pp.comb %>% left_join(cid.map.cl, join_by (CID == cid)) %>% glimpse
-# write.csv(pp.by.name, "pp.name.csv", fileEncoding="Windows-1252", row.names = FALSE)
-
-
-
 # Chemical Releases
 
 fate.exp <- pc_sect(cid.map.cl2$cid, "Environmental Fate/Exposure Summary",
@@ -174,35 +176,126 @@ fate.exp <- pc_sect(cid.map.cl2$cid, "Environmental Fate/Exposure Summary",
 fate <- pc_sect(cid.map.cl2$cid, "Environmental Fate",
                     domain = "compound", verbose=F)
 
-# Human Health Effects
+# FIELD: Human Health Effects, multiple sources
+health.eff <- pc_sect(cid.map.cl2$cid, "Health Effects",
+                      domain = "compound", verbose=F)
+target.org <- pc_sect(cid.map.cl2$cid, "Target Organs",
+                      domain = "compound", verbose=F)
+adv.eff <- pc_sect(cid.map.cl2$cid, "Adverse Effects",
+                      domain = "compound", verbose=F)
 signs <- pc_sect(cid.map.cl2$cid, "Signs and Symptoms",
                  domain = "compound", verbose=F)
-# group.save(signs, "signs.RDS")
+human.health <- bind_rows(health.eff, target.org, adv.eff, signs) %>% arrange(CID)
 
-# Sources
-sources <- pc_sect(cid.map.cl2$cid, "Sources/Uses",
-                   domain = "compound", verbose=F)
+# Sources/Uses
+sources <- pc_sect(cid.map.cl2$cid, "Uses",
+                   domain = "compound", verbose=F) %>% filter(!is.na(Result))
 
-# Chemical Use (Source)
-# Sources Facility / Location
+# Retain 1st result of SourceName for "Chemical Use (Source)"
+# "Haz-Map, Information on Hazardous Chemicals and Occupational Diseases"
+# Chemical Use (souce)
+chem.use <- sources %>%
+  filter(SourceName=="Haz-Map, Information on Hazardous Chemicals and Occupational Diseases") %>%
+  group_by(CID) %>% summarise(Name = first(Name),
+                              Result = first(Result))
+
+
+
 # Source Industry
-
-# Drinking Water Sources and Watersheds
-water <- pc_sect(cid.map.cl2$cid, "Environmental Water Concentrations",
-        domain = "compound", verbose=F)
-# group.save(water)
-
-# Drinking Water Sources
-# drink <-
-
-# Receiving Watersheds, paragraph 2
-# shed <-
+industry <- sources %>%
+  group_by(CID) %>% summarise(Name = first(Name),
+                              Result =
+                                Result[grepl("Category: Industry", Result,
+                                             ignore.case = TRUE)][1])
 
 
-# Chemical Entry Points
 
-# 12.2.8 Environmental Fate (S2P1)
 
+
+# SOURCE: Effluent Concentrations is likely more suitable
+eff.conc <- pc_sect(cid.map.cl2$cid, "Effluent Concentrations",
+                domain = "compound", verbose=F) %>% filter(!is.na(Result))
+
+# SOURCE: Environmental Water Concentrations
+env.water <- pc_sect(cid.map.cl2$cid, "Environmental Water Concentrations",
+                 domain = "compound", verbose=F) %>% filter(!is.na(Result))
+
+# FIELD: Drinking Water Sources
+drink <- water %>%
+  filter(str_detect(Result, regex(paste0(
+    "(drinking water|tap water|finished water|treated water|",
+    "source water|raw water|intake|distribution system|",
+    "water utility|potable water)"), ignore_case = TRUE)))
+
+# Sources Facility/ Location
+facility <- water %>%
+  filter(!(Result %in% drink$Result), str_detect(Result,regex(paste0(
+    #not sure if ^ should be included to force mutual exclusivity
+    # --- Direct facility + discharge ---
+    "(",
+    "(plant|facility|factory|industry|industrial|manufacturer|mill|refinery|site|",
+    "landfill|leachate|wastewater treatment plant|wwtp|sewage treatment plant)",
+    ".*",
+    "(effluent|influent|discharge|release|outfall)",
+    ")",
+    "|",
+    # --- Indirect attribution (spatial linkage) ---
+    "((downstream|plume|near)\\s+(of\\s+)?",
+    "(plant|facility|factory|industry|landfill|wwtp|sewage treatment plant)",
+    ")"
+  ),
+  ignore_case = TRUE)))
+
+
+# FIELD: Receiving Watersheds
+watershed <- water %>%
+  filter(!(Result %in% drink$Result), !(Result %in% facility$Result),
+         #not sure if ^ should be included to force mutual exclusivity
+    str_detect(
+      Result,
+      regex(
+        paste0(
+          "(",
+          # core environmental media
+          "river|stream|lake|surface water|groundwater|aquifer|basin|watershed",
+          "|",
+          # atmospheric deposition media (C-specific case)
+          "rain|rainwater|snow|fog",
+          ")",
+          ".*",
+          "(",
+          # distribution / monitoring signals
+          "across|multiple|various|survey|monitoring|samples|sites|regions|areas",
+          "|",
+          # quantitative monitoring language (strong signal)
+          "detected in|frequency of detection|%|concentration|ng/L|ug/L",
+          ")"
+        ),
+        ignore_case = TRUE
+      )
+    )
+  ) %>%
+  filter(
+    !str_detect(
+      Result,
+      regex(
+        paste0(
+          # exclude source attribution (B)
+          "plant|facility|wwtp|wastewater|landfill|effluent|discharge|outfall",
+          "|",
+          # exclude pathway / mechanism (A)
+          "runoff|enter|transport|leach|deposition into|washoff|scavenging|downstream|plume"
+        ),
+        ignore_case = TRUE
+      )
+    )
+  )
+
+
+# FIELD: Chemical Entry Points
+# SOUCRE: Environmental Fate / Exposure Summary
+entry <- pc_sect(cid.map.cl2$cid, "Environmental Fate / Exposure Summary",
+               domain = "compound", verbose=F)
 
 # Monitoring Requirements
 req <- pc_sect(cid.map.cl2$cid, "Regulatory Information",
@@ -213,10 +306,10 @@ tech <- pc_sect(cid.map.cl2$cid, "Environmental Biodegradation",
                domain = "compound", verbose=F)
 
 # Safe Production
-safe <- pc_sect(cid.map.cl2$cid, "Storage Conditions",
-                domain = "compound", verbose=F)
+# safe <- pc_sect(cid.map.cl2$cid, "Storage Conditions",
+#                 domain = "compound", verbose=F)
 # Safe Use
-uses <- pc_sect(cid.map.cl2$cid, "Personal Protective Equipment",
+uses <- pc_sect(cid.map.cl2$cid, "Preventive Measures",
                domain = "compound", verbose=F)
 
 # Safe Disposal
@@ -224,8 +317,8 @@ disposal <- pc_sect(cid.map.cl2$cid, "Disposal Methods",
                domain = "compound", verbose=F)
 
 # Consumer Products
-consum <- pc_sect(cid.map.cl2$cid, "Household Products",
-                    domain = "compound", verbose=F)
+# consum <- pc_sect(head(cid.map.cl2)$cid, "Consumer Uses",
+#                     domain = "compound", verbose=F)
 
 # Exposure Routes
 
@@ -234,15 +327,15 @@ exp.routes <-  pc_sect(cid.map.cl2$cid, "Exposure Routes",
 
 # Exposure Baseline
 
-exp.base <- pc_sect(cid.map.cl2$cid, "Metabolism / Metabolites",
-                          domain = "compound", verbose=F)
+# exp.base <- pc_sect(cid.map.cl2$cid, "Metabolism / Metabolites",
+#                           domain = "compound", verbose=F)
 # 8.3 Metabolism / Metabolites (P2)
 
 
 # Transgenerational Effects
 
-generation <- pc_sect(cid.map.cl2$cid, "Health Effects",
-                        domain = "compound", verbose=F)
+# generation <- pc_sect(cid.map.cl2$cid, "Health Effects",
+#                         domain = "compound", verbose=F)
 
 # Hormetic Effects
 
