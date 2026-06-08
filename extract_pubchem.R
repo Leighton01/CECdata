@@ -23,14 +23,20 @@ inch.map.cas.cir <- cir_query(clean$CAS,
                                match = "all",
                                verbose = FALSE)
 
+saveRDS(inch.map.cas.cir, "inch.map.cas.cir_0608.RDS")
+
+# Many CAS will have multiple inchikeys. Add only uniques to list.
 inch.map.cas.cir.uniq <- inch.map.cas.cir %>%
+  # group by cas
   group_by(CAS = query) %>%
+  # keep if only 1 record and not na
   filter(n()==1, !(is.na(stdinchikey))) %>% ungroup() %>%
-  left_join(clean %>%
-              select(`Chemical Name`, CAS),
+  # add to the clean dataset
+  left_join(clean,
             join_by(query == CAS)) %>%
   rename(InChIKey = stdinchikey) %>%
-  reframe(`Chemical Name`, CAS, InChIKey) %>%
+  reframe(`Chemical Name`, CAS, InChIKey, Label) %>%
+  # clean the cir inchikey results
   mutate(InChIKey = str_replace(InChIKey, "InChIKey=", ""))
 
 
@@ -42,13 +48,17 @@ cid.map.inch.pc <- get_cid(
   match = "all",
   verbose = FALSE)
 
+saveRDS(cid.map.inch.pc, "cid.map.inch.pc_0608.RDS")
+
+# Again, keep only the unique CIDs,
+# but this time keep the ones that are empty too
 cid.map.inch.pc.uniq <- cid.map.inch.pc %>%
   group_by(InChIKey = query) %>%
   filter(n()==1, !(is.na(cid))) %>% ungroup() %>%
-  left_join(inch.map.cas.cir.uniq,
+  right_join(inch.map.cas.cir.uniq,
             join_by(InChIKey == InChIKey)) %>%
   rename(CID = cid) %>%
-  reframe(`Chemical Name`, CAS, CID)
+  reframe(`Chemical Name`, InChIKey, CAS, CID, Label)
 
 
 # Get CID from chemical name
@@ -58,14 +68,15 @@ cid.map.name.pc <- get_cid(
   match = "all",
   verbose = FALSE)
 
+saveRDS(cid.map.name.pc, "cid.map.name.pc_0608.RDS")
+
 cid.map.name.pc.uniq <- cid.map.name.pc %>%
   group_by(`Chemical Name` = query) %>%
   filter(n()==1, !(is.na(cid))) %>% ungroup() %>%
-  left_join(clean %>%
-              select(`Chemical Name`, CAS),
+  left_join(clean,
             join_by(query == `Chemical Name`)) %>%
   rename(CID = cid) %>%
-  reframe(`Chemical Name`, CAS, CID)
+  reframe(`Chemical Name`, InChIKey, CAS, CID, Label)
 
 # Get CID from CAS
 cid.map.cas.pc <- get_cid(
@@ -74,6 +85,9 @@ cid.map.cas.pc <- get_cid(
   match = "all",
   verbose = FALSE)
 
+saveRDS(cid.map.cas.pc, "cid.map.cas.pc_0608.RDS")
+
+
 cid.map.cas.pc.uniq <- cid.map.cas.pc %>%
   group_by(query) %>%
   filter(n()==1, !(is.na(cid))) %>% ungroup() %>%
@@ -81,7 +95,7 @@ cid.map.cas.pc.uniq <- cid.map.cas.pc %>%
               select(`Chemical Name`, CAS),
             join_by(query == CAS)) %>%
   rename(CID = cid, CAS = query) %>%
-  reframe(`Chemical Name`, CAS, CID)
+  reframe(`Chemical Name`, InChIKey, CAS, CID, Label)
 
 # keep if record unique, OR if duplicate records are the same
 cid.map <- bind_rows(cid.map.inch.pc.uniq,
