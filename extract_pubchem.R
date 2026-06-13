@@ -16,130 +16,175 @@ ping_service(
   apikey = NULL
 )
 
-# CIR API -----------------------------------------------------------------
-# Get InChIKey from CAS, CIR api
-inch.map.cas.cir <- cir_query(clean$CAS,
-                               representation = "stdinchikey",
-                               match = "all",
-                               verbose = FALSE)
-
-saveRDS(inch.map.cas.cir, "inch.map.cas.cir_0608.RDS")
+# TABLE: CHEMICALS --------------------------------------------------------
+# # Get InChIKey from CAS, CIR api
+# inch.map.cas.cir <- cir_query(clean$CAS,
+#                                representation = "stdinchikey",
+#                                match = "all",
+#                                verbose = FALSE)
+#
+# saveRDS(inch.map.cas.cir, "inch.map.cas.cir_0608.RDS")
+inch.map.cas.cir <- readRDS("inch.map.cas.cir_0608.RDS")
 
 # Many CAS will have multiple inchikeys. Add only uniques to list.
+# var naming structure: "inchikey from cas, api CIR, unique only"
 inch.map.cas.cir.uniq <- inch.map.cas.cir %>%
   # group by cas
-  group_by(CAS = query) %>%
+  group_by(cas = query) %>%
   # keep if only 1 record and not na
-  filter(n()==1, !(is.na(stdinchikey))) %>% ungroup() %>%
-  # add to the clean dataset
-  left_join(clean,
-            join_by(query == CAS)) %>%
-  rename(InChIKey = stdinchikey) %>%
-  reframe(`Chemical Name`, CAS, InChIKey, Label) %>%
+  filter(n()==1, !(is.na(stdinchikey))) %>%
+  ungroup() %>%
+  rename(inchikey = stdinchikey) %>%
   # clean the cir inchikey results
-  mutate(InChIKey = str_replace(InChIKey, "InChIKey=", ""))
+  mutate(inchikey = str_replace(inchikey, "InChIKey=", ""))
 
+# combine clean + inchikeys
+clean.inch <- inch.map.cas.cir.uniq %>%
+  left_join(clean,
+            join_by(query == cas))%>%
+  reframe(name, cas, inchikey, label)
 
-# PC API ------------------------------------------------------------------
-# Get CID from inchikey (retrieved through CIR)
-cid.map.inch.pc <- get_cid(
-  inch.map.cas.cir.uniq$InChIKey,
-  from = "inchikey",
-  match = "all",
-  verbose = FALSE)
+# # Get CID from inchikey (retrieved through CIR) from pubchem API
+# cid.map.inch.pc <- get_cid(
+#   inch.map.cas.cir.uniq$InChIKey,
+#   from = "inchikey",
+#   match = "all",
+#   verbose = FALSE)
+#
+# saveRDS(cid.map.inch.pc, "cid.map.inch.pc_0608.RDS")
+cid.map.inch.pc <- readRDS("cid.map.inch.pc_0608.RDS")
 
-saveRDS(cid.map.inch.pc, "cid.map.inch.pc_0608.RDS")
-
-# Again, keep only the unique CIDs,
-# but this time keep the ones that are empty too
+# Again, keep only the unique CIDs
 cid.map.inch.pc.uniq <- cid.map.inch.pc %>%
-  group_by(InChIKey = query) %>%
+  group_by(query) %>%
   filter(n()==1, !(is.na(cid))) %>% ungroup() %>%
-  right_join(inch.map.cas.cir.uniq,
-            join_by(InChIKey == InChIKey)) %>%
-  rename(CID = cid) %>%
-  reframe(`Chemical Name`, InChIKey, CAS, CID, Label)
+  rename(inchikey = query) %>%
+  left_join(clean.inch, join_by(inchikey == inchikey))
 
-
-# Get CID from chemical name
-cid.map.name.pc <- get_cid(
-  clean$`Chemical Name`,
-  from = "name",
-  match = "all",
-  verbose = FALSE)
-
-saveRDS(cid.map.name.pc, "cid.map.name.pc_0608.RDS")
+# # Get CID from chemical name
+# cid.map.name.pc <- get_cid(
+#   clean$name,
+#   from = "name",
+#   match = "all",
+#   verbose = FALSE)
+#
+# saveRDS(cid.map.name.pc, "cid.map.name.pc_0608.RDS")
+cid.map.name.pc <- readRDS("cid.map.name.pc_0608.RDS")
 
 cid.map.name.pc.uniq <- cid.map.name.pc %>%
-  group_by(`Chemical Name` = query) %>%
+  group_by(query) %>%
   filter(n()==1, !(is.na(cid))) %>% ungroup() %>%
-  left_join(clean,
-            join_by(query == `Chemical Name`)) %>%
-  rename(CID = cid) %>%
-  reframe(`Chemical Name`, InChIKey, CAS, CID, Label)
+  rename(name = query) %>%
+  left_join(clean.inch, join_by(name == name))
 
-# Get CID from CAS
-cid.map.cas.pc <- get_cid(
-  clean$CAS,
-  from = "cas",
-  match = "all",
-  verbose = FALSE)
 
-saveRDS(cid.map.cas.pc, "cid.map.cas.pc_0608.RDS")
-
+# # Get CID from CAS
+# cid.map.cas.pc <- get_cid(
+#   clean$cas,
+#   from = "cas",
+#   match = "all",
+#   verbose = FALSE)
+#
+# saveRDS(cid.map.cas.pc, )
+cid.map.cas.pc <- readRDS("cid.map.cas.pc_0608.RDS")
 
 cid.map.cas.pc.uniq <- cid.map.cas.pc %>%
   group_by(query) %>%
   filter(n()==1, !(is.na(cid))) %>% ungroup() %>%
-  left_join(clean %>%
-              select(`Chemical Name`, CAS),
-            join_by(query == CAS)) %>%
-  rename(CID = cid, CAS = query) %>%
-  reframe(`Chemical Name`, InChIKey, CAS, CID, Label)
+  rename(cas = query) %>%
+  left_join(clean.inch, join_by(cas == cas))
 
-# keep if record unique, OR if duplicate records are the same
+# putting everythign together
+# inch.map.cas.cir.uniq -> clean.inch
+# cid.map.inch.pc.uniq , cid.map.name.pc.uniq, cid.map.cas.pc.uniq
+
+glimpse(cid.map.inch.pc.uniq)
+glimpse(cid.map.name.pc.uniq)
+glimpse(cid.map.cas.pc.uniq)
+
+# Combine all cid results, keep if record unique, OR if duplicate records are the same
 cid.map <- bind_rows(cid.map.inch.pc.uniq,
                         cid.map.name.pc.uniq,
                         cid.map.cas.pc.uniq) %>%
-  group_by(`Chemical Name`) %>%
-  filter(n() == 1 | (n() > 1 & n_distinct(across(everything())) == 1)) %>%
-  slice(1) %>% ungroup() %>%
-  select(`Chemical Name`, CID)
-#
-# cid.map.dupes <- get_dupes(cid.map, CID)[,1] %>% mutate(CID = as.numeric(CID))
-cid.map.uniq <- cid.map %>%
-  group_by(CID) %>%
-  filter(n() == 1) %>%
+  group_by(tolower(name)) %>%
+  filter(n_distinct(cid) == 1) %>%
+  slice(1) %>%
   ungroup()
 
-attn <- clean %>%
-  filter(!(`Chemical Name` %in% cid.map.uniq$`Chemical Name`)) %>%
-  select(`Chemical Name`)
+# VALIDATION
+# empty, good
+cid.map %>% group_by(name) %>% summarise(n()) %>% filter(`n()`>1)
+temp <- cid.map %>% group_by(cid) %>% summarise(n()) %>%
+  filter(`n()`>1) %>% ungroup()
+# some duplicate cids, many seem to be slight vairations in naming
+cid.dupe <- cid.map %>% filter(cid %in% temp$cid) %>% arrange(cid)
+# exclude cid.dupe from cid.map
+cid.map.uniq <- cid.map %>% filter(!(cid %in% cid.dupe$cid))
 
-# Retrieve Column Data ----------------------------------------------------
+# retrieve other data for table Chemicals based on CID
+ids.other <- pc_prop(cid.map.uniq$cid, properties = c("Title", "InChIKey", "InChI",
+                                                 "SMILES","IUPACName",
+                                                 "MolecularFormula"), verbose = F)
+saveRDS(ids.other, "ids.other.RDS")
 
-# Add CAS to cid.map
-cas.db <- clean %>% filter(is.cas(clean$CAS)) %>% select(`Chemical Name`, CAS)
-cas.pc <- pc_sect(cid.map.uniq$CID, section = "CAS", verbose = FALSE) %>% filter(!is.na(Result))
-
-# 3 = name, cid, cas
-cid.map3 <- cid.map.uniq %>%
-  left_join(cas.pc, join_by(CID == CID))
-
-# Add InChIKey to cid.map
-
-
-
+# retrieve CAS based on CID for verification
+cas.pc <- pc_sect(cid.map.uniq$cid, "CAS", domain = "compound", verbose=F)
+saveRDS(cas.pc, "cas.pc.RDS")
 #
-id.all <- pc_prop(cid.map$CID, properties = c("InChIKey","InChI",
-                                                       "SMILES","IUPACName",
-                                                       "MolecularFormula"
-                                                       ), verbose = F) %>%
-  left_join(cid.map %>% select(`Chemical Name`, CID), join_by(CID==CID))
+# # validate inchikey
+# inchi.valid <- cid.map.uniq %>% left_join(ids.other, join_by(cid==CID))
+# inchi.valid.no <- inchi.valid %>% filter(!(is.na(inchikey)),
+#                                          !(is.na(InChIKey)),
+#                                          !(inchikey == InChIKey))
+#
+# # validate cas
+# cas.valid.no <- cid.map.uniq %>% filter(!(is.na(cas)),
+#                                      !(cas %in% cas.pc$Result))
 
-# Chemical Properties
+# combine everything
+# ids.other + cas.pc + cid.map.uniq + clean.inch + clean
+# remaining has neither (or duplicates)... which would require manual attnetion
+# clean.ids <- cid.map.uniq %>% select(name, cid) %>%
+#   full_join(clean.inch, join_by(name == name)) %>%
+#   left_join(clean, join_by(name==name))
 
-desc2 <- pc_sect(cid.map.cl2$cid, "Record Description", domain = "compound", verbose=F)
+# Group and take only the uniques
+ids.other.uniq <- ids.other %>%
+  group_by(CID) %>%
+  filter(n() == 1) %>%
+  slice(1) %>%
+  ungroup()
+
+cas.pc.uniq <- cas.pc %>%
+  group_by(CID) %>%
+  filter(n() == 1) %>%
+  slice(1) %>%
+  ungroup()
+
+# combine EVERYTHING, then compare and only keep if values agree (NAs ok)
+clean.ids <- clean %>%
+  left_join(clean.inch %>% select(name, inchikey), join_by(name == name)) %>%
+  left_join(cid.map.uniq %>% select(name, inchikey, cid, cas), join_by(name == name)) %>%
+  left_join(cas.pc.uniq %>% select(Name, CID, Result), join_by(cid == CID)) %>%
+  left_join(ids.other.uniq, join_by(cid == CID))
+
+
+
+clean.final <-
+
+# retrieve a descripton for each based on CID
+desc <- pc_sect(clean.final$cid, "Record Description", domain = "compound", verbose=F)
+
+
+# List that needs manuallly attention
+# 1. no unique inchikey or cid based on name or CAS (ie not in clean.ids)
+# 2. different inchikey from cas and cid (in inchi.valid.no)
+# 3. different cas from provided and cid (in cas.valid.no)
+
+attn <- (setdiff(clean$name, clean.ids$name))
+attn.list <- attn %>%  left_join(clean, join_by(name == name))
+
+# TABLE: PROPERTIES -------------------------------------------------------
 
 # Physical Properties
 pp.colour <- pc_sect(cid.map.cl2$cid, "Color / Form", domain = "compound", verbose=F)
