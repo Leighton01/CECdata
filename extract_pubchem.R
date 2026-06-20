@@ -169,20 +169,94 @@ clean.ids <- clean %>%
   left_join(ids.other.uniq, join_by(cid == CID))
 
 
+# 1. Check that cas.x = cas.y
+# if not equal, check cas.x is actually cas
+# if not, use cas.y, if yes, then remove entry
+# 2. Check inchikey.x = inchikey.y, if not remove entry
 
-clean.final <-
+
+clean.pen <- clean.ids %>%
+  mutate(
+    cas.final = case_when(
+      cas.x == cas.y ~ cas.x,
+      !is.cas(cas.x) ~ cas.y,
+      TRUE ~ NA_character_
+    ),
+    inchikey.final = apply(
+      cbind(inchikey.x, inchikey.y, InChIKey), # bind the 3 values
+      1, # eval by row
+      function(v) { # v is the current row vector (created by cbind)
+
+        v <- v[!is.na(v)] # remove the na vals
+
+        if (length(v) == 0) return(NA_character_) # if all 3 cols are na, na
+        if (length(unique(v)) == 1) return(v[1]) # if 1 unique val, that one!
+        NA_character_ # if 2 or 3 uniques, remove :(
+      }
+    )
+  ) %>%
+  filter(!is.na(inchikey.final)) %>% # since inchikey is the pk, it cannot be na
+  select(name, label, inchikey = inchikey.final, cas = cas.final, cid,
+         formula = MolecularFormula, smiles = SMILES, inchi = InChI,
+         iupac = IUPACName)
+
+# check how many nas there are for the fields
+colSums(is.na(clean.pen))
+clean.pen %>% filter(is.na(cid)) %>% select(inchikey)
+clean.patch <- clean.pen %>% filter(is.na(cid))
+
+# Get the remaining missing properties...
+t <- get_cid(clean.patch$inchikey,
+    from = "inchikey",
+    match = "all",
+    verbose = FALSE)
+
+t2 <- t %>% filter(!is.na(cid)) %>%
+  group_by(query) %>%
+  filter(n()==1, !(is.na(cid))) %>% ungroup() %>%
+  rename(inchikey = query)
+
+clean.pen.cid <- clean.pen %>% left_join(t2, join_by(inchikey == inchikey)) %>%
+  mutate(
+    cid = case_when(
+      !(is.na(cid.x)) ~ cid.x,
+      TRUE ~ cid.y
+    )
+  ) %>%
+  select(-cid.x, -cid.y)
+
+
+clean.pen.ids <- pc_prop(clean.pen.cid$cid, properties = c("Title", "InChIKey", "InChI",
+                                                      "SMILES","IUPACName",
+                                                      "MolecularFormula"), verbose = F)
+
+clean.final <- clean.pen.cid %>%
+  left_join(clean.pen.ids %>% filter(!is.na(CID)), join_by(cid == CID)) %>%
+  group_by(inchikey) %>%
+  filter(n() == 1) %>%
+  ungroup()
+
+# Both should be true...
+nrow(clean.final) == length(unique(clean.final$inchikey))
+nrow(clean.final) == length(unique(clean.final$cid)) + sum(is.na(clean.final$cid)) - 1
+
+saveRDS(clean.final, "clean.final.RDS")
 
 # retrieve a descripton for each based on CID
 desc <- pc_sect(clean.final$cid, "Record Description", domain = "compound", verbose=F)
+saveRDS(desc, "desc.RDS")
 
+
+
+clean.final %>% left_join()
 
 # List that needs manuallly attention
 # 1. no unique inchikey or cid based on name or CAS (ie not in clean.ids)
 # 2. different inchikey from cas and cid (in inchi.valid.no)
 # 3. different cas from provided and cid (in cas.valid.no)
 
-attn <- (setdiff(clean$name, clean.ids$name))
-attn.list <- attn %>%  left_join(clean, join_by(name == name))
+attn <- as_tibble(setdiff(clean$name, clean.final$name)) %>% rename(name = value)
+attn.list <- attn %>% left_join(clean, join_by(name == name))
 
 # TABLE: PROPERTIES -------------------------------------------------------
 
