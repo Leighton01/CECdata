@@ -2,6 +2,10 @@ library(readxl)
 library(tidyverse)
 library(webchem)
 library(janitor)
+library(ctxR)
+
+# check chemspider api key
+cs_check_key()
 
 # CTS not working since beginning of May 2026 due to recent cyber attack -May 17 2026
 # run cts relevant lines once fixed
@@ -122,7 +126,7 @@ cid.dupe <- cid.map %>% filter(cid %in% temp$cid) %>% arrange(cid)
 cid.map.uniq <- cid.map %>% filter(!(cid %in% cid.dupe$cid))
 
 # retrieve other data for table Chemicals based on CID
-ids.other <- pc_prop(cid.map.uniq$cid, properties = c("Title", "InChIKey", "InChI",
+  ids.other <- pc_prop(cid.map.uniq$cid, properties = c("Title", "InChIKey", "InChI",
                                                  "SMILES","IUPACName",
                                                  "MolecularFormula"), verbose = F)
 saveRDS(ids.other, "ids.other.RDS")
@@ -130,23 +134,6 @@ saveRDS(ids.other, "ids.other.RDS")
 # retrieve CAS based on CID for verification
 cas.pc <- pc_sect(cid.map.uniq$cid, "CAS", domain = "compound", verbose=F)
 saveRDS(cas.pc, "cas.pc.RDS")
-#
-# # validate inchikey
-# inchi.valid <- cid.map.uniq %>% left_join(ids.other, join_by(cid==CID))
-# inchi.valid.no <- inchi.valid %>% filter(!(is.na(inchikey)),
-#                                          !(is.na(InChIKey)),
-#                                          !(inchikey == InChIKey))
-#
-# # validate cas
-# cas.valid.no <- cid.map.uniq %>% filter(!(is.na(cas)),
-#                                      !(cas %in% cas.pc$Result))
-
-# combine everything
-# ids.other + cas.pc + cid.map.uniq + clean.inch + clean
-# remaining has neither (or duplicates)... which would require manual attnetion
-# clean.ids <- cid.map.uniq %>% select(name, cid) %>%
-#   full_join(clean.inch, join_by(name == name)) %>%
-#   left_join(clean, join_by(name==name))
 
 # Group and take only the uniques
 ids.other.uniq <- ids.other %>%
@@ -246,26 +233,65 @@ saveRDS(clean.final, "clean.final.RDS")
 desc <- pc_sect(clean.final$cid, "Record Description", domain = "compound", verbose=F)
 saveRDS(desc, "desc.RDS")
 
+glimpse(desc)
+view(desc)
 
 
-clean.final %>% left_join()
+##################WAIT FOR API KEY FROM EPA
+
+# Retrieve chemical details using the InChIKey
+chem_details <- get_chemical_details()
+
+# Extract DTXSID from the response
+dtxsid <- chem_details$dtxsid
+
+##################WAIT FOR API KEY FROM EPA
+
+
+################do chemspider
+get_csid()
+################
+
+
+
+
+desc.comb <- desc %>% group_by(CID) %>%
+  summarise(Result= paste(Result, collapse = ". "), .groups = "drop")
+
+
+clean.all <- clean.final %>%
+  left_join(desc.comb, join_by(cid == CID)) %>%
+  rename(desc = Result)
+
+
+
+
+
 
 # List that needs manuallly attention
 # 1. no unique inchikey or cid based on name or CAS (ie not in clean.ids)
 # 2. different inchikey from cas and cid (in inchi.valid.no)
 # 3. different cas from provided and cid (in cas.valid.no)
 
-attn <- as_tibble(setdiff(clean$name, clean.final$name)) %>% rename(name = value)
+attn <- as_tibble(setdiff(clean$name, clean.all$name)) %>% rename(name = value)
 attn.list <- attn %>% left_join(clean, join_by(name == name))
 
 # TABLE: PROPERTIES -------------------------------------------------------
 
 # Physical Properties
-pp.colour <- pc_sect(cid.map.cl2$cid, "Color / Form", domain = "compound", verbose=F)
-pp.odor <- pc_sect(cid.map.cl2$cid, "Odor", domain = "compound", verbose=F)
-pp.bp <- pc_sect(cid.map.cl2$cid, "Boiling Point", domain = "compound", verbose=F)
-pp.mp <- pc_sect(cid.map.cl2$cid, "Melting Point", domain = "compound", verbose=F)
-pp.decompn <- pc_sect(cid.map.cl2$cid, "Decomposition", domain = "compound", verbose=F)
+color <- pc_sect(clean.all$cid, "Color / Form", domain = "compound", verbose=F)
+odor <- pc_sect(clean.all$cid, "Odor", domain = "compound", verbose=F)
+bp <- pc_sect(clean.all$cid, "Boiling Point", domain = "compound", verbose=F)
+mp <- pc_sect(clean.all$cid, "Melting Point", domain = "compound", verbose=F)
+decomposition <- pc_sect(clean.all$cid, "Decomposition", domain = "compound", verbose=F)
+
+saveRDS(pp.colour, "color.RDS")
+saveRDS(pp.odor, "odor.RDS")
+saveRDS(pp.bp, "bp.RDS")
+saveRDS(pp.mp, "mp.RDS")
+saveRDS(pp.decompn, "decomposition.RDS")
+
+
 
 
 # some compounds don't have all sections, that's ok
