@@ -1,11 +1,10 @@
 library(readxl)
+library(openxlsx)
 library(tidyverse)
 library(webchem)
 library(janitor)
 library(ctxR)
 
-# check chemspider api key
-cs_check_key()
 
 # CTS not working since beginning of May 2026 due to recent cyber attack -May 17 2026
 # run cts relevant lines once fixed
@@ -19,6 +18,12 @@ ping_service(
               "nist", "opsin", "pc", "srs", "wd"),
   apikey = NULL
 )
+
+# check chemspider api key
+cs_check_key()
+
+# register epa api key, store in envir
+register_ctx_api_key("4d4cbbce-4265-4b24-9712-326c0d8ea618", write = T)
 
 # TABLE: CHEMICALS --------------------------------------------------------
 # # Get InChIKey from CAS, CIR api
@@ -236,24 +241,70 @@ saveRDS(desc, "desc.RDS")
 glimpse(desc)
 view(desc)
 
+# Retrieve identifier info from EPA based on inchikey and name
+bpa <- chemical_equal_batch(word_list = clean.all$inchikey,
+                            rate_limit = 0.3)
 
-##################WAIT FOR API KEY FROM EPA
+bpa.n <- chemical_equal_batch(word_list = clean$name,
+                            rate_limit = 0.3)
+
+# consolidate bpa and bpa.n, keep only when at least 1 id is equal or missing
+t <- bpa %>% left_join(clean.all %>% select(inchikey, name),
+                       join_by(searchValue == inchikey))
+
+bpa.all <- bpa.n %>% left_join(t, join_by(searchValue == name)) %>%
+  filter((dtxcid.x == dtxcid.y | xor(is.na(dtxcid.x), is.na(dtxcid.y))) &
+           (dtxsid.x == dtxsid.y | xor(is.na(dtxsid.x), is.na(dtxsid.y))) &
+           (smiles.x == smiles.y | xor(is.na(smiles.x), is.na(smiles.y)))) %>%
+  mutate(name = searchValue, inchikey = searchValue.y,
+         dtxcid = coalesce(dtxcid.x, dtxcid.y),
+         dtxsid = coalesce(dtxsid.x, dtxsid.y),
+         casrn = coalesce(casrn.x, casrn.y),
+         smiles = coalesce(smiles.x, smiles.y),
+         epaname = coalesce(preferredName.x, preferredName.y)
+         ) %>%
+  select(name, inchikey, dtxcid, dtxsid, casrn, smiles, epaname)
 
 # Retrieve chemical details using the InChIKey
-chem_details <- get_chemical_details()
+epa.details.sid <- get_chemical_details_batch(DTXSID = bpa.all$dtxsid)
+epa.details.cid <- get_chemical_details_batch(DTXCID = bpa.all$dtxcid)
 
-# Extract DTXSID from the response
-dtxsid <- chem_details$dtxsid
+t1 <- get_aggregate_records_by_dtxsid(DTXSID = bpa.all$dtxsid[1])
+t2 <- get_bioactivity_details(DTXSID = bpa.all$dtxsid[1])
+# t3 <- get_bioactivity_summary(DTXSID = bpa.all$dtxsid[1])
+t4 <- get_biomonitoring_data(DTXSID = bpa.all$dtxsid[1])
+t5 <- get_cancer_hazard(DTXSID = bpa.all$dtxsid[1])
+library(png)
+t6 <- get_chemical_image(DTXSID = bpa.all$dtxsid[1])
+t7 <- get_chem_info(DTXSID = bpa.all$dtxsid[1])
+t8 <- get_chem_props_exp(DTXSID = bpa.all$dtxsid[1])
+t9 <- get_chem_props_pred(DTXSID = bpa.all$dtxsid[1])
+t10 <- get_chem_props_summary(DTXSID = bpa.all$dtxsid[1])
+t11 <- get_demographic_exposure_prediction(DTXSID = bpa.all$dtxsid[1])
+t12 <- get_exposure_functional_use(DTXSID = bpa.all$dtxsid[1])
+t13 <- get_exposure_product_data(DTXSID = bpa.all$dtxsid[1])
+t14 <- get_fate_by_dtxsid(DTXSID = bpa.all$dtxsid[1])
+t15 <- get_general_exposure_prediction(DTXSID = bpa.all$dtxsid[1])
+t16 <- get_general_use_keywords(DTXSID = bpa.all$dtxsid[1])
+t17 <- get_genetox_details(DTXSID = bpa.all$dtxsid[1])
+t18 <- get_genetox_summary(DTXSID = bpa.all$dtxsid[1])
+t19 <- get_hazard_by_dtxsid(DTXSID = bpa.all$dtxsid[1])
+t20 <- get_reported_functional_use(DTXSID = bpa.all$dtxsid[1])
+t21 <- get_single_sample_records_by_dtxsid(DTXSID = bpa.all$dtxsid[1])
+t22 <- get_skin_eye_hazard(DTXSID = bpa.all$dtxsid[1])
+
 
 ##################WAIT FOR API KEY FROM EPA
 
 
 ################do chemspider
-get_csid()
+# test
+get_csid("triclosan")
+
+csids <- get_csid(clean.all$inchikey, from = "inchikey", match = "all")
+
+# cs_convert()
 ################
-
-
-
 
 desc.comb <- desc %>% group_by(CID) %>%
   summarise(Result= paste(Result, collapse = ". "), .groups = "drop")
@@ -263,6 +314,8 @@ clean.all <- clean.final %>%
   left_join(desc.comb, join_by(cid == CID)) %>%
   rename(desc = Result)
 
+write.xlsx(clean.all,
+           "CEC_Table_Chemicals_0622.xlsx")
 
 
 
@@ -275,6 +328,9 @@ clean.all <- clean.final %>%
 
 attn <- as_tibble(setdiff(clean$name, clean.all$name)) %>% rename(name = value)
 attn.list <- attn %>% left_join(clean, join_by(name == name))
+
+write.xlsx(attn.list %>% rename(`Original Name` = name, `Original CAS` = cas),
+           "CEC Manual Verification List.xlsx")
 
 # TABLE: PROPERTIES -------------------------------------------------------
 
@@ -290,9 +346,6 @@ saveRDS(pp.odor, "odor.RDS")
 saveRDS(pp.bp, "bp.RDS")
 saveRDS(pp.mp, "mp.RDS")
 saveRDS(pp.decompn, "decomposition.RDS")
-
-
-
 
 # some compounds don't have all sections, that's ok
 c(
