@@ -241,12 +241,42 @@ saveRDS(desc, "desc.RDS")
 glimpse(desc)
 view(desc)
 
-# Retrieve identifier info from EPA based on inchikey and name
+
+
+
+
+
+desc.comb <- desc %>% group_by(CID) %>%
+  summarise(Result= paste(Result, collapse = ". "), .groups = "drop")
+
+
+clean.all <- clean.final %>%
+  left_join(desc.comb, join_by(cid == CID)) %>%
+  rename(desc = Result)
+
+write.xlsx(clean.all,
+           "CEC_Table_Chemicals_0622.xlsx")
+
+# List that needs manuallly attention
+# 1. no unique inchikey or cid based on name or CAS (ie not in clean.ids)
+# 2. different inchikey from cas and cid (in inchi.valid.no)
+# 3. different cas from provided and cid (in cas.valid.no)
+
+attn <- as_tibble(setdiff(clean$name, clean.all$name)) %>% rename(name = value)
+attn.list <- attn %>% left_join(clean, join_by(name == name))
+
+write.xlsx(attn.list %>% rename(`Original Name` = name, `Original CAS` = cas),
+           "CEC Manual Verification List.xlsx")
+
+# TABLE: PROPERTIES -------------------------------------------------------
+# Retrieve identifier + info from EPA based on inchikey and name
 bpa <- chemical_equal_batch(word_list = clean.all$inchikey,
                             rate_limit = 0.3)
+saveRDS(bpa,"bpa.RDS")
 
 bpa.n <- chemical_equal_batch(word_list = clean$name,
-                            rate_limit = 0.3)
+                              rate_limit = 0.3)
+saveRDS(bpa.n,"bpa.n.RDS")
 
 # consolidate bpa and bpa.n, keep only when at least 1 id is equal or missing
 t <- bpa %>% left_join(clean.all %>% select(inchikey, name),
@@ -262,39 +292,80 @@ bpa.all <- bpa.n %>% left_join(t, join_by(searchValue == name)) %>%
          casrn = coalesce(casrn.x, casrn.y),
          smiles = coalesce(smiles.x, smiles.y),
          epaname = coalesce(preferredName.x, preferredName.y)
-         ) %>%
+  ) %>%
   select(name, inchikey, dtxcid, dtxsid, casrn, smiles, epaname)
+
+
+why <- unique(bpa.all$dtxsid[duplicated(bpa.all$dtxsid)])
+bpa.all %>% filter(dtxsid %in% why) %>% view()
+
 
 # Retrieve chemical details using the InChIKey
 epa.details.sid <- get_chemical_details_batch(DTXSID = bpa.all$dtxsid)
+saveRDS(epa.details.sid,"epa.details.sid.RDS")
+epa.details.sid <- readRDS("epa.details.sid.RDS")
+
 epa.details.cid <- get_chemical_details_batch(DTXCID = bpa.all$dtxcid)
+saveRDS(epa.details.cid,"epa.details.cid.RDS")
+epa.details.cid <- readRDS("epa.details.cid.RDS")
 
-t1 <- get_aggregate_records_by_dtxsid(DTXSID = bpa.all$dtxsid[1])
-t2 <- get_bioactivity_details(DTXSID = bpa.all$dtxsid[1])
+
+# General info, eg bp mp fate
+epa.info <- get_chem_info_batch(DTXSID = bpa.all$dtxsid)
+saveRDS(epa.info,"epa.info.RDS")
+readRDS("epa.info.RDS")
+
+keep <- c("dtxsid", "propName", "propValue",
+           "propUnit", "propType", "propCategory", "propDescription",
+          "sourceName", "sourceDescription")
+
+# include both experimental and predicted, discuss later
+epa.info.clean <- epa.info %>%
+  filter(!(is.na(propValue))) %>%
+  select(all_of(keep))
+
+t.properties <- epa.info.clean %>%
+  left_join(bpa.all, join_by(dtxsid == dtxsid))
+
+
+
+# TABLE MEASUREMENTS
+
+# # sample data!
+# t1 <- get_aggregate_records_by_dtxsid(DTXSID = bpa.all$dtxsid[1])
+# t2 <- get_bioactivity_details(DTXSID = bpa.all$dtxsid[1])
 # t3 <- get_bioactivity_summary(DTXSID = bpa.all$dtxsid[1])
-t4 <- get_biomonitoring_data(DTXSID = bpa.all$dtxsid[1])
-t5 <- get_cancer_hazard(DTXSID = bpa.all$dtxsid[1])
-library(png)
-t6 <- get_chemical_image(DTXSID = bpa.all$dtxsid[1])
-t7 <- get_chem_info(DTXSID = bpa.all$dtxsid[1])
-t8 <- get_chem_props_exp(DTXSID = bpa.all$dtxsid[1])
-t9 <- get_chem_props_pred(DTXSID = bpa.all$dtxsid[1])
-t10 <- get_chem_props_summary(DTXSID = bpa.all$dtxsid[1])
-t11 <- get_demographic_exposure_prediction(DTXSID = bpa.all$dtxsid[1])
-t12 <- get_exposure_functional_use(DTXSID = bpa.all$dtxsid[1])
-t13 <- get_exposure_product_data(DTXSID = bpa.all$dtxsid[1])
-t14 <- get_fate_by_dtxsid(DTXSID = bpa.all$dtxsid[1])
-t15 <- get_general_exposure_prediction(DTXSID = bpa.all$dtxsid[1])
-t16 <- get_general_use_keywords(DTXSID = bpa.all$dtxsid[1])
-t17 <- get_genetox_details(DTXSID = bpa.all$dtxsid[1])
-t18 <- get_genetox_summary(DTXSID = bpa.all$dtxsid[1])
-t19 <- get_hazard_by_dtxsid(DTXSID = bpa.all$dtxsid[1])
-t20 <- get_reported_functional_use(DTXSID = bpa.all$dtxsid[1])
-t21 <- get_single_sample_records_by_dtxsid(DTXSID = bpa.all$dtxsid[1])
-t22 <- get_skin_eye_hazard(DTXSID = bpa.all$dtxsid[1])
+# t4 <- get_biomonitoring_data(DTXSID = bpa.all$dtxsid[1])
+# t21 <- get_single_sample_records_by_dtxsid(DTXSID = bpa.all$dtxsid[1])
+
+# TABLE INFORMATION
 
 
-##################WAIT FOR API KEY FROM EPA
+# # HARARDD!!!!
+# t5 <- get_cancer_hazard(DTXSID = bpa.all$dtxsid[1])
+# # YES, human eposure consequences
+# t19 <- get_hazard_by_dtxsid(DTXSID = bpa.all$dtxsid[1])
+# # ok more consequences huasnalksdjf lk
+# t22 <- get_skin_eye_hazard(DTXSID = bpa.all$dtxsid[1])
+#
+# # USES
+# t12 <- get_exposure_functional_use(DTXSID = bpa.all$dtxsid[1])
+# # specific product NAMEs damn
+# t13 <- get_exposure_product_data(DTXSID = bpa.all$dtxsid[1])
+# # more functional use??
+# t20 <- get_reported_functional_use(DTXSID = bpa.all$dtxsid[1])
+
+
+# # OTHERSSSSS
+#
+# # useful if we can categorize the levels... hmmmmm need to discuss
+# t11 <- get_demographic_exposure_prediction(DTXSID = bpa.all$dtxsid[1])
+#
+# # yes, fate, not public facing!
+# t14 <- get_fate_by_dtxsid(DTXSID = bpa.all$dtxsid[1])
+#
+# # mayeb use as search function? maybe
+# t16 <- get_general_use_keywords(DTXSID = bpa.all$dtxsid[1])
 
 
 ################do chemspider
@@ -306,34 +377,8 @@ csids <- get_csid(clean.all$inchikey, from = "inchikey", match = "all")
 # cs_convert()
 ################
 
-desc.comb <- desc %>% group_by(CID) %>%
-  summarise(Result= paste(Result, collapse = ". "), .groups = "drop")
 
-
-clean.all <- clean.final %>%
-  left_join(desc.comb, join_by(cid == CID)) %>%
-  rename(desc = Result)
-
-write.xlsx(clean.all,
-           "CEC_Table_Chemicals_0622.xlsx")
-
-
-
-
-
-# List that needs manuallly attention
-# 1. no unique inchikey or cid based on name or CAS (ie not in clean.ids)
-# 2. different inchikey from cas and cid (in inchi.valid.no)
-# 3. different cas from provided and cid (in cas.valid.no)
-
-attn <- as_tibble(setdiff(clean$name, clean.all$name)) %>% rename(name = value)
-attn.list <- attn %>% left_join(clean, join_by(name == name))
-
-write.xlsx(attn.list %>% rename(`Original Name` = name, `Original CAS` = cas),
-           "CEC Manual Verification List.xlsx")
-
-# TABLE: PROPERTIES -------------------------------------------------------
-
+# OLD PUBCHEM CODE --------------------------------------------------------
 # Physical Properties
 color <- pc_sect(clean.all$cid, "Color / Form", domain = "compound", verbose=F)
 odor <- pc_sect(clean.all$cid, "Odor", domain = "compound", verbose=F)
@@ -560,8 +605,7 @@ h20 <- pc_sect(cid.map.cl2$cid, "Volatilization from Water / Soil",
                       domain = "compound", verbose=F)
 
 
-
-# Combine -----------------------------------------------------------------
+# Combine
 list1 <- lst( "Chemical Properties" = desc2,
               "Physical Properties" = pp.comb,
               "Chemical Releases" = fate.exp,
