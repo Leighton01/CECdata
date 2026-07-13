@@ -254,8 +254,8 @@ clean.all <- clean.final %>%
   left_join(desc.comb, join_by(cid == CID)) %>%
   rename(desc = Result)
 
-write.xlsx(clean.all,
-           "CEC_Table_Chemicals_0622.xlsx")
+# write.xlsx(clean.all,
+#            "CEC_Table_Chemicals_0622.xlsx")
 
 # List that needs manuallly attention
 # 1. no unique inchikey or cid based on name or CAS (ie not in clean.ids)
@@ -270,13 +270,23 @@ write.xlsx(attn.list %>% rename(`Original Name` = name, `Original CAS` = cas),
 
 # TABLE: PROPERTIES -------------------------------------------------------
 # Retrieve identifier + info from EPA based on inchikey and name
-bpa <- chemical_equal_batch(word_list = clean.all$inchikey,
-                            rate_limit = 0.3)
-saveRDS(bpa,"bpa.RDS")
+# bpa <- chemical_equal_batch(word_list = clean.all$inchikey,
+#                             rate_limit = 0.3)
+# saveRDS(bpa,"bpa.RDS")
+#
+# bpa.n <- chemical_equal_batch(word_list = clean$name,
+#                               rate_limit = 0.3)
+# saveRDS(bpa.n,"bpa.n.RDS")
 
-bpa.n <- chemical_equal_batch(word_list = clean$name,
-                              rate_limit = 0.3)
-saveRDS(bpa.n,"bpa.n.RDS")
+bpa <- readRDS("bpa.RDS") %>% filter(!is.na(dtxsid))
+
+# filter to only keep one record if
+# ...the search names and returned preferrednames are the same
+bpa.n <- readRDS("bpa.n.RDS") %>%
+  filter(!is.na(dtxsid)) %>%
+  distinct(tolower(searchValue), .keep_all = TRUE) %>%
+  distinct(dtxsid, preferredName, .keep_all = TRUE)
+
 
 # consolidate bpa and bpa.n, keep only when at least 1 id is equal or missing
 t <- bpa %>% left_join(clean.all %>% select(inchikey, name),
@@ -296,24 +306,20 @@ bpa.all <- bpa.n %>% left_join(t, join_by(searchValue == name)) %>%
   select(name, inchikey, dtxcid, dtxsid, casrn, smiles, epaname)
 
 
-why <- unique(bpa.all$dtxsid[duplicated(bpa.all$dtxsid)])
-bpa.all %>% filter(dtxsid %in% why) %>% view()
-
-
 # Retrieve chemical details using the InChIKey
-epa.details.sid <- get_chemical_details_batch(DTXSID = bpa.all$dtxsid)
-saveRDS(epa.details.sid,"epa.details.sid.RDS")
+# epa.details.sid <- get_chemical_details_batch(DTXSID = bpa.all$dtxsid)
+# saveRDS(epa.details.sid,"epa.details.sid.RDS")
 epa.details.sid <- readRDS("epa.details.sid.RDS")
 
-epa.details.cid <- get_chemical_details_batch(DTXCID = bpa.all$dtxcid)
-saveRDS(epa.details.cid,"epa.details.cid.RDS")
+# epa.details.cid <- get_chemical_details_batch(DTXCID = bpa.all$dtxcid)
+# saveRDS(epa.details.cid,"epa.details.cid.RDS")
 epa.details.cid <- readRDS("epa.details.cid.RDS")
 
 
 # General info, eg bp mp fate
-epa.info <- get_chem_info_batch(DTXSID = bpa.all$dtxsid)
-saveRDS(epa.info,"epa.info.RDS")
-readRDS("epa.info.RDS")
+# epa.info <- get_chem_info_batch(DTXSID = bpa.all$dtxsid)
+# saveRDS(epa.info,"epa.info.RDS")
+epa.info <- readRDS("epa.info.RDS")
 
 keep <- c("dtxsid", "propName", "propValue",
            "propUnit", "propType", "propCategory", "propDescription",
@@ -324,10 +330,102 @@ epa.info.clean <- epa.info %>%
   filter(!(is.na(propValue))) %>%
   select(all_of(keep))
 
-t.properties <- epa.info.clean %>%
-  left_join(bpa.all, join_by(dtxsid == dtxsid))
+# properties to be included in table properties,
+#  the rest will prob be in other tables
+props.properties <- c("Melting Point",
+                      "Boiling Point",
+                      "Density",
+                      "Vapor Pressure",
+                      "Flash Point",
+                      "Water Solubility",
+                      "LogKow: Octanol-Water",
+                      "Henry's Law Constant",
+                      "pKa Acidic Apparent",
+                      "pKa Basic Apparent",
+                      "Surface Tension",
+                      "Viscosity",
+                      "LogD5.5",
+                      "LogD7.4")
+
+# keep only unique records
+t.properties0 <- epa.info.clean %>%
+  left_join(bpa.all, join_by(dtxsid == dtxsid)) %>%
+  distinct(propName, propValue, propUnit, propType, dtxsid,
+           inchikey, dtxcid, casrn, smiles, .keep_all = T) %>%
+  filter(propName %in% props.properties) %>%
+  arrange(dtxsid, propName)
+
+# fill in records with empty inchikeys
+inchi.fill <- get_chemical_details_batch(t.properties0$dtxsid)
+
+t.properties <- t.properties0 %>% left_join(inchi.fill %>% select(dtxsid, inchikey),
+                           join_by(dtxsid == dtxsid)) %>%
+  mutate(inchikey = ifelse(is.na(inchikey.x), inchikey.y, inchikey.x))
 
 
+# find all sources and rank them
+unique(t.properties$sourceName)
+source.priority <- tribble(
+  ~source, ~source_rank,
+  "Lewis et al. 2016", 100,
+  "Bradley", 95,
+  "Sander_v5", 95,
+  "PubChem_2024_11_27", 90,
+  "eChemPortalAPI", 90,
+  "NCCT_Physchem", 85,
+  "ATSDR_Perfluoroalkyl_Cheminfo ", 85,
+  "Danish_EPA_PFOA_Report_2005", 85,
+  "Kovdienko et al. 2010", 80,
+  "Ran et al. 2002", 80,
+  "Hughes et al. 2008", 80,
+  "Tetko et al. 2001", 80,
+  "Boobier, Osbourn, & Mitchell 2017", 80,
+  "Bhhatarai et al. Environ. Sci. Technol. 2011, 45, 8120-8128.", 80,
+  "Rayne et al, J. Env. Sci. and Health Part A, (2009) 44(12):1145-1199", 80,
+  "Li et al. J. Phys. Chem. Ref. Data 32(4): 1545-1590.", 80,
+  "Zang, et al 2017", 80,
+  "Ding & Peijnenburg 2013", 80,
+  "AqSolDB", 70,
+  "OChem_2024_04_03", 65,
+  "ADDoPT", 60,
+  "ChemicalBook", 50,
+  "Synquest Labs (Chemical Company) Refrigerant Table", 50,
+  "OPERA2.8", 30,
+  "TEST5.1.3", 30,
+  "Percepta2023.1.2", 30,
+  "QSARDB", 25
+)
+
+# add rank pt to table, no source / na = 0
+t.properties.ranked <- t.properties %>%
+  left_join(source.priority, join_by(sourceName == source)) %>%
+  mutate(source.rank = replace_na(source_rank, 0))
+
+t.properties.selected <- t.properties.ranked %>%
+  arrange(desc(source.rank)) %>%
+  group_by(dtxsid,
+           propName) %>%
+  slice_head(n=1) %>%
+  ungroup() %>%
+  mutate(inchikey_prop_type = paste0(inchikey, propName)) %>%
+  select(inchikey_prop_type,
+         inchikey, dtxsid, dtxcid, prop_name = propName, value = propValue,
+         unit = propUnit, conditions = propDescription, type = propType,
+         desc = propDescription, src = sourceName, src_desc = sourceDescription) %>%
+  filter(!is.na(inchikey))
+
+t.chemicals <- clean.all %>% left_join(t.properties.selected %>%
+                                         select(dtxsid, dtxcid, inchikey),
+                        join_by(inchikey == inchikey)) %>%
+  left_join(inchi.fill %>% select(dtxsid, inchikey), join_by(dtxsid == dtxsid)) %>%
+  mutate(inchikey = ifelse(is.na(inchikey.x), inchikey.y, inchikey.x)) %>%
+  select(-inchikey.x, -inchikey.y)
+
+write.xlsx(t.chemicals,
+           "CEC_Table_Chemicals_20260713.xlsx")
+
+write.xlsx(t.properties.selected,
+           "CEC_Table_Properties_20260713.xlsx")
 
 # TABLE MEASUREMENTS
 
