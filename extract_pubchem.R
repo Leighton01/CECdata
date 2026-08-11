@@ -241,11 +241,6 @@ saveRDS(desc, "desc.RDS")
 glimpse(desc)
 view(desc)
 
-
-
-
-
-
 desc.comb <- desc %>% group_by(CID) %>%
   summarise(Result= paste(Result, collapse = ". "), .groups = "drop")
 
@@ -419,10 +414,13 @@ t.chemicals <- clean.all %>% left_join(t.properties.selected %>%
                         join_by(inchikey == inchikey)) %>%
   left_join(inchi.fill %>% select(dtxsid, inchikey), join_by(dtxsid == dtxsid)) %>%
   mutate(inchikey = ifelse(is.na(inchikey.x), inchikey.y, inchikey.x)) %>%
-  select(-inchikey.x, -inchikey.y)
+  select(-inchikey.x, -inchikey.y) %>% distinct()
+
+saveRDS(t.chemicals, "t.chemicals.RDS")
+saveRDS(t.properties.selected, "t.properties.selected.RDS")
 
 write.xlsx(t.chemicals,
-           "CEC_Table_Chemicals_20260713.xlsx")
+           "CEC_Table_Chemicals_20260811.xlsx")
 
 write.xlsx(t.properties.selected,
            "CEC_Table_Properties_20260713.xlsx")
@@ -473,79 +471,45 @@ get_csid("triclosan")
 csids <- get_csid(clean.all$inchikey, from = "inchikey", match = "all")
 
 # cs_convert()
-################
 
 
-# OLD PUBCHEM CODE --------------------------------------------------------
-# Physical Properties
-color <- pc_sect(clean.all$cid, "Color / Form", domain = "compound", verbose=F)
-odor <- pc_sect(clean.all$cid, "Odor", domain = "compound", verbose=F)
-bp <- pc_sect(clean.all$cid, "Boiling Point", domain = "compound", verbose=F)
-mp <- pc_sect(clean.all$cid, "Melting Point", domain = "compound", verbose=F)
-decomposition <- pc_sect(clean.all$cid, "Decomposition", domain = "compound", verbose=F)
+# TABLE Information -------------------------------------------------------
+# take cid from t.chemicals
+glimpse(t.chemicals)
 
-saveRDS(pp.colour, "color.RDS")
-saveRDS(pp.odor, "odor.RDS")
-saveRDS(pp.bp, "bp.RDS")
-saveRDS(pp.mp, "mp.RDS")
-saveRDS(pp.decompn, "decomposition.RDS")
-
-# some compounds don't have all sections, that's ok
-c(
-  sum(is.na(pp.colour$Result)),
-  sum(is.na(pp.odor$Result)),
-  sum(is.na(pp.bp$Result)),
-  sum(is.na(pp.mp$Result)),
-  sum(is.na(pp.decompn$Result))
-)
-
-# Remove duplicates
-pp.colour2 <- pp.colour %>% distinct(CID, Result) %>% filter(!is.na(Result))
-pp.odor2 <- pp.odor %>% distinct(CID, Result) %>% filter(!is.na(Result))
-pp.bp2 <- pp.bp %>% distinct(CID, Result) %>% filter(!is.na(Result))
-pp.mp2 <- pp.mp %>% distinct(CID, Result) %>% filter(!is.na(Result))
-pp.decompn2 <- pp.decompn %>% distinct(CID, Result) %>% filter(!is.na(Result))
-
-# Collapse and add tag
-pp.bp3 <- pp.bp2 %>% group_by(CID) %>%
-  summarise(Result= paste(Result, collapse = "; "), .groups = "drop")
-pp.bp3$Result <- paste("Reported BPs: ", pp.bp3$Result)
-
-pp.mp3 <- pp.mp2 %>% group_by(CID) %>%
-  summarise(Result= paste(Result, collapse = "; "), .groups = "drop")
-pp.mp3$Result <- paste("Reported MPs: ", pp.mp3$Result)
-
-# Combine all pp dfs
-pp <- rbind(pp.colour2, pp.odor2, pp.bp3, pp.mp3, pp.decompn2)
-
-pp.comb <- pp %>% group_by(CID) %>%
-  summarise(Result = paste(Result, collapse = ".\n"), .groups = "drop")
-
+# info from pubchem from archive
+color <- pc_sect(t.chemicals$cid, "Color / Form", domain = "compound", verbose=F)
+saveRDS(color, "color.RDS")
+odor <- pc_sect(t.chemicals$cid, "Odor", domain = "compound", verbose=F)
+saveRDS(odor, "odor.RDS")
+decomposition <- pc_sect(t.chemicals$cid, "Decomposition", domain = "compound", verbose=F)
+saveRDS(decomposition, "decomposition.RDS")
 # Chemical Releases
 
-fate.exp <- pc_sect(cid.map.cl2$cid, "Environmental Fate/Exposure Summary",
-                domain = "compound", verbose=F)
-
+fate.exp <- pc_sect(t.chemicals$cid, "Environmental Fate/Exposure Summary",
+                    domain = "compound", verbose=F)
+saveRDS(fate.exp, "fate.exp.RDS")
 # Environmental Effects
 
-fate <- pc_sect(cid.map.cl2$cid, "Environmental Fate",
-                    domain = "compound", verbose=F)
-
+fate <- pc_sect(t.chemicals$cid, "Environmental Fate",
+                domain = "compound", verbose=F)
+saveRDS(fate, "fate.RDS")
 # FIELD: Human Health Effects, multiple sources
-health.eff <- pc_sect(cid.map.cl2$cid, "Health Effects",
+health.eff <- pc_sect(t.chemicals$cid, "Health Effects",
                       domain = "compound", verbose=F)
-target.org <- pc_sect(cid.map.cl2$cid, "Target Organs",
+target.org <- pc_sect(t.chemicals$cid, "Target Organs",
                       domain = "compound", verbose=F)
-adv.eff <- pc_sect(cid.map.cl2$cid, "Adverse Effects",
-                      domain = "compound", verbose=F)
-signs <- pc_sect(cid.map.cl2$cid, "Signs and Symptoms",
+adv.eff <- pc_sect(t.chemicals$cid, "Adverse Effects",
+                   domain = "compound", verbose=F)
+signs <- pc_sect(t.chemicals$cid, "Signs and Symptoms",
                  domain = "compound", verbose=F)
 human.health <- bind_rows(health.eff, target.org, adv.eff, signs) %>% arrange(CID)
+saveRDS(human.health, "human.health.RDS")
 
 # Sources/Uses
-sources <- pc_sect(cid.map.cl2$cid, "Uses",
+sources <- pc_sect(t.chemicals$cid, "Uses",
                    domain = "compound", verbose=F) %>% filter(!is.na(Result))
-
+saveRDS(sources, "sources.RDS")
 # Retain 1st result of SourceName for "Chemical Use (Source)"
 # "Haz-Map, Information on Hazardous Chemicals and Occupational Diseases"
 # Chemical Use (souce)
@@ -553,7 +517,6 @@ chem.use <- sources %>%
   filter(SourceName=="Haz-Map, Information on Hazardous Chemicals and Occupational Diseases") %>%
   group_by(CID) %>% summarise(Name = first(Name),
                               Result = first(Result))
-
 
 
 # Source Industry
@@ -564,228 +527,365 @@ industry <- sources %>%
                                              ignore.case = TRUE)][1])
 
 
-
-
-
 # SOURCE: Effluent Concentrations is likely more suitable
-eff.conc <- pc_sect(cid.map.cl2$cid, "Effluent Concentrations",
-                domain = "compound", verbose=F) %>% filter(!is.na(Result))
-
+eff.conc <- pc_sect(t.chemicals$cid, "Effluent Concentrations",
+                    domain = "compound", verbose=F) %>% filter(!is.na(Result))
+saveRDS(eff.conc, "eff.conc.RDS")
 # SOURCE: Environmental Water Concentrations
-env.water <- pc_sect(cid.map.cl2$cid, "Environmental Water Concentrations",
-                 domain = "compound", verbose=F) %>% filter(!is.na(Result))
-
-# FIELD: Drinking Water Sources
-drink <- water %>%
-  filter(str_detect(Result, regex(paste0(
-    "(drinking water|tap water|finished water|treated water|",
-    "source water|raw water|intake|distribution system|",
-    "water utility|potable water)"), ignore_case = TRUE)))
-
-# Sources Facility/ Location
-facility <- water %>%
-  filter(!(Result %in% drink$Result), str_detect(Result,regex(paste0(
-    #not sure if ^ should be included to force mutual exclusivity
-    # --- Direct facility + discharge ---
-    "(",
-    "(plant|facility|factory|industry|industrial|manufacturer|mill|refinery|site|",
-    "landfill|leachate|wastewater treatment plant|wwtp|sewage treatment plant)",
-    ".*",
-    "(effluent|influent|discharge|release|outfall)",
-    ")",
-    "|",
-    # --- Indirect attribution (spatial linkage) ---
-    "((downstream|plume|near)\\s+(of\\s+)?",
-    "(plant|facility|factory|industry|landfill|wwtp|sewage treatment plant)",
-    ")"
-  ),
-  ignore_case = TRUE)))
-
-
-# FIELD: Receiving Watersheds
-watershed <- water %>%
-  filter(!(Result %in% drink$Result), !(Result %in% facility$Result),
-         #not sure if ^ should be included to force mutual exclusivity
-    str_detect(
-      Result,
-      regex(
-        paste0(
-          "(",
-          # core environmental media
-          "river|stream|lake|surface water|groundwater|aquifer|basin|watershed",
-          "|",
-          # atmospheric deposition media (C-specific case)
-          "rain|rainwater|snow|fog",
-          ")",
-          ".*",
-          "(",
-          # distribution / monitoring signals
-          "across|multiple|various|survey|monitoring|samples|sites|regions|areas",
-          "|",
-          # quantitative monitoring language (strong signal)
-          "detected in|frequency of detection|%|concentration|ng/L|ug/L",
-          ")"
-        ),
-        ignore_case = TRUE
-      )
-    )
-  ) %>%
-  filter(
-    !str_detect(
-      Result,
-      regex(
-        paste0(
-          # exclude source attribution (B)
-          "plant|facility|wwtp|wastewater|landfill|effluent|discharge|outfall",
-          "|",
-          # exclude pathway / mechanism (A)
-          "runoff|enter|transport|leach|deposition into|washoff|scavenging|downstream|plume"
-        ),
-        ignore_case = TRUE
-      )
-    )
-  )
-
-
+env.water <- pc_sect(t.chemicals$cid, "Environmental Water Concentrations",
+                     domain = "compound", verbose=F) %>% filter(!is.na(Result))
+saveRDS(env.water, "env.water.RDS")
 # FIELD: Chemical Entry Points
 # SOUCRE: Environmental Fate / Exposure Summary
-entry <- pc_sect(cid.map.cl2$cid, "Environmental Fate / Exposure Summary",
-               domain = "compound", verbose=F)
-
-# Monitoring Requirements
-req <- pc_sect(cid.map.cl2$cid, "Regulatory Information",
+entry <- pc_sect(t.chemicals$cid, "Environmental Fate / Exposure Summary",
                  domain = "compound", verbose=F)
-
+saveRDS(entry, "entry.RDS")
 # Removal Technologies
-tech <- pc_sect(cid.map.cl2$cid, "Environmental Biodegradation",
-               domain = "compound", verbose=F)
-
-# Safe Production
-# safe <- pc_sect(cid.map.cl2$cid, "Storage Conditions",
-#                 domain = "compound", verbose=F)
+tech <- pc_sect(t.chemicals$cid, "Environmental Biodegradation",
+                domain = "compound", verbose=F)
+saveRDS(tech, "tech.RDS")
 # Safe Use
-uses <- pc_sect(cid.map.cl2$cid, "Preventive Measures",
-               domain = "compound", verbose=F)
-
+uses <- pc_sect(t.chemicals$cid, "Preventive Measures",
+                domain = "compound", verbose=F)
+saveRDS(uses, "uses.RDS")
 # Safe Disposal
-disposal <- pc_sect(cid.map.cl2$cid, "Disposal Methods",
-               domain = "compound", verbose=F)
-
+disposal <- pc_sect(t.chemicals$cid, "Disposal Methods",
+                    domain = "compound", verbose=F)
+saveRDS(disposal, "disposal.RDS")
 # Consumer Products
 # consum <- pc_sect(head(cid.map.cl2)$cid, "Consumer Uses",
 #                     domain = "compound", verbose=F)
 
 # Exposure Routes
 
-exp.routes <-  pc_sect(cid.map.cl2$cid, "Exposure Routes",
-                          domain = "compound", verbose=F)
-
-# Exposure Baseline
-
-# exp.base <- pc_sect(cid.map.cl2$cid, "Metabolism / Metabolites",
-#                           domain = "compound", verbose=F)
-# 8.3 Metabolism / Metabolites (P2)
-
-
-# Transgenerational Effects
-
-# generation <- pc_sect(cid.map.cl2$cid, "Health Effects",
-#                         domain = "compound", verbose=F)
-
+exp.routes <-  pc_sect(t.chemicals$cid, "Exposure Routes",
+                       domain = "compound", verbose=F)
+saveRDS(exp.routes, "exp.routes.RDS")
 # Hormetic Effects
 
-carcin <- pc_sect(cid.map.cl2$cid, "Evidence for Carcinogenicity",
-                      domain = "compound", verbose=F)
-
-# H2O Sol
-
-h20 <- pc_sect(cid.map.cl2$cid, "Volatilization from Water / Soil",
-                      domain = "compound", verbose=F)
+carcin <- pc_sect(t.chemicals$cid, "Evidence for Carcinogenicity",
+                  domain = "compound", verbose=F)
+saveRDS(carcin, "carcin.RDS")
 
 
-# Combine
-list1 <- lst( "Chemical Properties" = desc2,
-              "Physical Properties" = pp.comb,
-              "Chemical Releases" = fate.exp,
-              "Environmental Effects" = fate,
-              "Human Health Effects" = signs,
-              # water, not sure how to divide this data yet
-              "Monitoring Requirements" = req,
-              "Removal Technologies" = tech,
-              "Safe Production" = safe,
-              # "Safe Use" = uses, # no result
-              #"Safe Disposal" = disposal, not sure how to divide this data yet
-              "Consumer Products" = consum,
-              "Exposure Routes" = exp.routes,
-              #"Exposure Baseline" = exp.base, not sure how to divide this data yet
-              "Transgenerational Effects" = generation,
-              "Hormetic Effects" = carcin,
-              "H2O Sol." = h20)
 
-# check if any is empty
-which((vapply(list1, function(x) !("Result" %in% colnames(x)), logical(1))))
-
-# Drop unneeded columns
-list2 <- lst()
-
-# Clean
-for (i in seq_along(list1)){
-
-  # if (ncol(list1[[i]]) == 0) {
-  #   temp_cn <- names(list1)[[i]]
-  #   list2[[i]] <- list1[[i]]
-  #   next
-  # }
-
-#  remove unneeded cols
- df.comb1 <- list1[[i]] %>% select("CID", "Result")
-
-# drop na, group content by CID
- df.comb2 <- df.comb1 %>%
-   tidyr::drop_na(Result) %>% group_by(CID) %>%
-   summarise(Result = paste(Result, collapse = ".\n"), .groups = "drop")
-
- #  rename based on tbl names
- colnames(df.comb2) <- c("CID", names(list1)[i])
- list2[[i]] <- df.comb2
-
-}
-
-# check the resulting dfs
-sapply(list2, function(x) nrow(x))
-lapply(list2, function(x) colnames(x))
-
-saveRDS(list2, "list2.RDS")
-# load("list2.RDS")
-
-# Merge
-merged.pc.df <- purrr::reduce(list2, full_join, by = "CID")
-# Check all cids are unique
-sum(duplicated(merged.pc.df))
-
-# Get CAS from orig file
-cas.all <- clean %>% select(`Chemical Name`, CAS)
-
-# Add CAS to cid map
-cid.cas.map <- left_join(cid.map.cl, cas.all, join_by(query == 'Chemical Name'))
-
-# Add chemical name + CAS to db
-merged.pc.name <- merged.pc.df %>% left_join(cid.cas.map, join_by (CID == cid))
-colnames(merged.pc.name)[which(colnames(merged.pc.name) == "query")] <- "Chemical Name"
-
-# Add other IDs
-merged.pc.id <- merged.pc.name %>% left_join(id_all_type, join_by (CID == CID))
-
-# Reorder
-merged.ordered <- merged.pc.id %>%
-  select(`Chemical Name`, InChIKey, CAS, CID,
-          CID, IUPACName, InChI, SMILES,
-          MolecularFormula, everything()) %>%
-  arrange(merged.ordered, `Chemical Name`)
+# do we need any info from epa? unlikely?
+unique(epa.info.clean$propName)
+# pick the ones needed
+# props.properties2 <-
 
 
-# Save
-openxlsx::write.xlsx(merged.ordered, "cec_pipeline_data_review_v1.xlsx")
-# writexl::write_xlsx(merged.pc.name, "write.xlsx")
+
+# OLD PUBCHEM CODE --------------------------------------------------------
+# # Physical Properties
+# color <- pc_sect(clean.all$cid, "Color / Form", domain = "compound", verbose=F)
+# odor <- pc_sect(clean.all$cid, "Odor", domain = "compound", verbose=F)
+# bp <- pc_sect(clean.all$cid, "Boiling Point", domain = "compound", verbose=F)
+# mp <- pc_sect(clean.all$cid, "Melting Point", domain = "compound", verbose=F)
+# decomposition <- pc_sect(clean.all$cid, "Decomposition", domain = "compound", verbose=F)
+#
+# saveRDS(pp.colour, "color.RDS")
+# saveRDS(pp.odor, "odor.RDS")
+# saveRDS(pp.bp, "bp.RDS")
+# saveRDS(pp.mp, "mp.RDS")
+# saveRDS(pp.decompn, "decomposition.RDS")
+#
+# # some compounds don't have all sections, that's ok
+# c(
+#   sum(is.na(pp.colour$Result)),
+#   sum(is.na(pp.odor$Result)),
+#   sum(is.na(pp.bp$Result)),
+#   sum(is.na(pp.mp$Result)),
+#   sum(is.na(pp.decompn$Result))
+# )
+#
+# # Remove duplicates
+# pp.colour2 <- pp.colour %>% distinct(CID, Result) %>% filter(!is.na(Result))
+# pp.odor2 <- pp.odor %>% distinct(CID, Result) %>% filter(!is.na(Result))
+# pp.bp2 <- pp.bp %>% distinct(CID, Result) %>% filter(!is.na(Result))
+# pp.mp2 <- pp.mp %>% distinct(CID, Result) %>% filter(!is.na(Result))
+# pp.decompn2 <- pp.decompn %>% distinct(CID, Result) %>% filter(!is.na(Result))
+#
+# # Collapse and add tag
+# pp.bp3 <- pp.bp2 %>% group_by(CID) %>%
+#   summarise(Result= paste(Result, collapse = "; "), .groups = "drop")
+# pp.bp3$Result <- paste("Reported BPs: ", pp.bp3$Result)
+#
+# pp.mp3 <- pp.mp2 %>% group_by(CID) %>%
+#   summarise(Result= paste(Result, collapse = "; "), .groups = "drop")
+# pp.mp3$Result <- paste("Reported MPs: ", pp.mp3$Result)
+#
+# # Combine all pp dfs
+# pp <- rbind(pp.colour2, pp.odor2, pp.bp3, pp.mp3, pp.decompn2)
+#
+# pp.comb <- pp %>% group_by(CID) %>%
+#   summarise(Result = paste(Result, collapse = ".\n"), .groups = "drop")
+#
+# # Chemical Releases
+#
+# fate.exp <- pc_sect(cid.map.cl2$cid, "Environmental Fate/Exposure Summary",
+#                 domain = "compound", verbose=F)
+#
+# # Environmental Effects
+#
+# fate <- pc_sect(cid.map.cl2$cid, "Environmental Fate",
+#                     domain = "compound", verbose=F)
+#
+# # FIELD: Human Health Effects, multiple sources
+# health.eff <- pc_sect(cid.map.cl2$cid, "Health Effects",
+#                       domain = "compound", verbose=F)
+# target.org <- pc_sect(cid.map.cl2$cid, "Target Organs",
+#                       domain = "compound", verbose=F)
+# adv.eff <- pc_sect(cid.map.cl2$cid, "Adverse Effects",
+#                       domain = "compound", verbose=F)
+# signs <- pc_sect(cid.map.cl2$cid, "Signs and Symptoms",
+#                  domain = "compound", verbose=F)
+# human.health <- bind_rows(health.eff, target.org, adv.eff, signs) %>% arrange(CID)
+#
+# # Sources/Uses
+# sources <- pc_sect(cid.map.cl2$cid, "Uses",
+#                    domain = "compound", verbose=F) %>% filter(!is.na(Result))
+#
+# # Retain 1st result of SourceName for "Chemical Use (Source)"
+# # "Haz-Map, Information on Hazardous Chemicals and Occupational Diseases"
+# # Chemical Use (souce)
+# chem.use <- sources %>%
+#   filter(SourceName=="Haz-Map, Information on Hazardous Chemicals and Occupational Diseases") %>%
+#   group_by(CID) %>% summarise(Name = first(Name),
+#                               Result = first(Result))
+#
+#
+#
+# # Source Industry
+# industry <- sources %>%
+#   group_by(CID) %>% summarise(Name = first(Name),
+#                               Result =
+#                                 Result[grepl("Category: Industry", Result,
+#                                              ignore.case = TRUE)][1])
+#
+#
+#
+#
+#
+# # SOURCE: Effluent Concentrations is likely more suitable
+# eff.conc <- pc_sect(cid.map.cl2$cid, "Effluent Concentrations",
+#                 domain = "compound", verbose=F) %>% filter(!is.na(Result))
+#
+# # SOURCE: Environmental Water Concentrations
+# env.water <- pc_sect(cid.map.cl2$cid, "Environmental Water Concentrations",
+#                  domain = "compound", verbose=F) %>% filter(!is.na(Result))
+#
+# # FIELD: Drinking Water Sources
+# drink <- water %>%
+#   filter(str_detect(Result, regex(paste0(
+#     "(drinking water|tap water|finished water|treated water|",
+#     "source water|raw water|intake|distribution system|",
+#     "water utility|potable water)"), ignore_case = TRUE)))
+#
+# # Sources Facility/ Location
+# facility <- water %>%
+#   filter(!(Result %in% drink$Result), str_detect(Result,regex(paste0(
+#     #not sure if ^ should be included to force mutual exclusivity
+#     # --- Direct facility + discharge ---
+#     "(",
+#     "(plant|facility|factory|industry|industrial|manufacturer|mill|refinery|site|",
+#     "landfill|leachate|wastewater treatment plant|wwtp|sewage treatment plant)",
+#     ".*",
+#     "(effluent|influent|discharge|release|outfall)",
+#     ")",
+#     "|",
+#     # --- Indirect attribution (spatial linkage) ---
+#     "((downstream|plume|near)\\s+(of\\s+)?",
+#     "(plant|facility|factory|industry|landfill|wwtp|sewage treatment plant)",
+#     ")"
+#   ),
+#   ignore_case = TRUE)))
+#
+#
+# # FIELD: Receiving Watersheds
+# watershed <- water %>%
+#   filter(!(Result %in% drink$Result), !(Result %in% facility$Result),
+#          #not sure if ^ should be included to force mutual exclusivity
+#     str_detect(
+#       Result,
+#       regex(
+#         paste0(
+#           "(",
+#           # core environmental media
+#           "river|stream|lake|surface water|groundwater|aquifer|basin|watershed",
+#           "|",
+#           # atmospheric deposition media (C-specific case)
+#           "rain|rainwater|snow|fog",
+#           ")",
+#           ".*",
+#           "(",
+#           # distribution / monitoring signals
+#           "across|multiple|various|survey|monitoring|samples|sites|regions|areas",
+#           "|",
+#           # quantitative monitoring language (strong signal)
+#           "detected in|frequency of detection|%|concentration|ng/L|ug/L",
+#           ")"
+#         ),
+#         ignore_case = TRUE
+#       )
+#     )
+#   ) %>%
+#   filter(
+#     !str_detect(
+#       Result,
+#       regex(
+#         paste0(
+#           # exclude source attribution (B)
+#           "plant|facility|wwtp|wastewater|landfill|effluent|discharge|outfall",
+#           "|",
+#           # exclude pathway / mechanism (A)
+#           "runoff|enter|transport|leach|deposition into|washoff|scavenging|downstream|plume"
+#         ),
+#         ignore_case = TRUE
+#       )
+#     )
+#   )
+#
+#
+# # FIELD: Chemical Entry Points
+# # SOUCRE: Environmental Fate / Exposure Summary
+# entry <- pc_sect(cid.map.cl2$cid, "Environmental Fate / Exposure Summary",
+#                domain = "compound", verbose=F)
+#
+# # Monitoring Requirements
+# req <- pc_sect(cid.map.cl2$cid, "Regulatory Information",
+#                  domain = "compound", verbose=F)
+#
+# # Removal Technologies
+# tech <- pc_sect(cid.map.cl2$cid, "Environmental Biodegradation",
+#                domain = "compound", verbose=F)
+#
+# # Safe Production
+# # safe <- pc_sect(cid.map.cl2$cid, "Storage Conditions",
+# #                 domain = "compound", verbose=F)
+# # Safe Use
+# uses <- pc_sect(cid.map.cl2$cid, "Preventive Measures",
+#                domain = "compound", verbose=F)
+#
+# # Safe Disposal
+# disposal <- pc_sect(cid.map.cl2$cid, "Disposal Methods",
+#                domain = "compound", verbose=F)
+#
+# # Consumer Products
+# # consum <- pc_sect(head(cid.map.cl2)$cid, "Consumer Uses",
+# #                     domain = "compound", verbose=F)
+#
+# # Exposure Routes
+#
+# exp.routes <-  pc_sect(cid.map.cl2$cid, "Exposure Routes",
+#                           domain = "compound", verbose=F)
+#
+# # Exposure Baseline
+#
+# # exp.base <- pc_sect(cid.map.cl2$cid, "Metabolism / Metabolites",
+# #                           domain = "compound", verbose=F)
+# # 8.3 Metabolism / Metabolites (P2)
+#
+#
+# # Transgenerational Effects
+#
+# # generation <- pc_sect(cid.map.cl2$cid, "Health Effects",
+# #                         domain = "compound", verbose=F)
+#
+# # Hormetic Effects
+#
+# carcin <- pc_sect(cid.map.cl2$cid, "Evidence for Carcinogenicity",
+#                       domain = "compound", verbose=F)
+#
+# # H2O Sol
+#
+# h20 <- pc_sect(cid.map.cl2$cid, "Volatilization from Water / Soil",
+#                       domain = "compound", verbose=F)
+#
+#
+# # Combine
+# list1 <- lst( "Chemical Properties" = desc2,
+#               "Physical Properties" = pp.comb,
+#               "Chemical Releases" = fate.exp,
+#               "Environmental Effects" = fate,
+#               "Human Health Effects" = signs,
+#               # water, not sure how to divide this data yet
+#               "Monitoring Requirements" = req,
+#               "Removal Technologies" = tech,
+#               "Safe Production" = safe,
+#               # "Safe Use" = uses, # no result
+#               #"Safe Disposal" = disposal, not sure how to divide this data yet
+#               "Consumer Products" = consum,
+#               "Exposure Routes" = exp.routes,
+#               #"Exposure Baseline" = exp.base, not sure how to divide this data yet
+#               "Transgenerational Effects" = generation,
+#               "Hormetic Effects" = carcin,
+#               "H2O Sol." = h20)
+#
+# # check if any is empty
+# which((vapply(list1, function(x) !("Result" %in% colnames(x)), logical(1))))
+#
+# # Drop unneeded columns
+# list2 <- lst()
+#
+# # Clean
+# for (i in seq_along(list1)){
+#
+#   # if (ncol(list1[[i]]) == 0) {
+#   #   temp_cn <- names(list1)[[i]]
+#   #   list2[[i]] <- list1[[i]]
+#   #   next
+#   # }
+#
+# #  remove unneeded cols
+#  df.comb1 <- list1[[i]] %>% select("CID", "Result")
+#
+# # drop na, group content by CID
+#  df.comb2 <- df.comb1 %>%
+#    tidyr::drop_na(Result) %>% group_by(CID) %>%
+#    summarise(Result = paste(Result, collapse = ".\n"), .groups = "drop")
+#
+#  #  rename based on tbl names
+#  colnames(df.comb2) <- c("CID", names(list1)[i])
+#  list2[[i]] <- df.comb2
+#
+# }
+#
+# # check the resulting dfs
+# sapply(list2, function(x) nrow(x))
+# lapply(list2, function(x) colnames(x))
+#
+# saveRDS(list2, "list2.RDS")
+# # load("list2.RDS")
+#
+# # Merge
+# merged.pc.df <- purrr::reduce(list2, full_join, by = "CID")
+# # Check all cids are unique
+# sum(duplicated(merged.pc.df))
+#
+# # Get CAS from orig file
+# cas.all <- clean %>% select(`Chemical Name`, CAS)
+#
+# # Add CAS to cid map
+# cid.cas.map <- left_join(cid.map.cl, cas.all, join_by(query == 'Chemical Name'))
+#
+# # Add chemical name + CAS to db
+# merged.pc.name <- merged.pc.df %>% left_join(cid.cas.map, join_by (CID == cid))
+# colnames(merged.pc.name)[which(colnames(merged.pc.name) == "query")] <- "Chemical Name"
+#
+# # Add other IDs
+# merged.pc.id <- merged.pc.name %>% left_join(id_all_type, join_by (CID == CID))
+#
+# # Reorder
+# merged.ordered <- merged.pc.id %>%
+#   select(`Chemical Name`, InChIKey, CAS, CID,
+#           CID, IUPACName, InChI, SMILES,
+#           MolecularFormula, everything()) %>%
+#   arrange(merged.ordered, `Chemical Name`)
+#
+#
+# # Save
+# openxlsx::write.xlsx(merged.ordered, "cec_pipeline_data_review_v1.xlsx")
+# # writexl::write_xlsx(merged.pc.name, "write.xlsx")
 
 
