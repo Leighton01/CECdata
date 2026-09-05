@@ -250,7 +250,7 @@ clean.all <- clean.final %>%
   rename(desc = Result)
 
 # write.xlsx(clean.all,
-#            "CEC_Table_Chemicals_0622.xlsx")
+#            "CEC_Table_Chemicals_20260622.xlsx")
 
 # List that needs manuallly attention
 # 1. no unique inchikey or cid based on name or CAS (ie not in clean.ids)
@@ -476,101 +476,164 @@ csids <- get_csid(clean.all$inchikey, from = "inchikey", match = "all")
 # TABLE Information -------------------------------------------------------
 # take cid from t.chemicals
 glimpse(t.chemicals)
+#
+# # info from pubchem from archive
+# # color <- pc_sect(t.chemicals$cid, "Color / Form", domain = "compound", verbose=F)
+# # saveRDS(color, "color.RDS")
+#
+# # odor <- pc_sect(t.chemicals$cid, "Odor", domain = "compound", verbose=F)
+# saveRDS(odor, "odor.RDS")
+#
+# decomposition <- pc_sect(t.chemicals$cid, "Decomposition", domain = "compound", verbose=F)
+# saveRDS(decomposition, "decomposition.RDS")
+# # Chemical Releases
+#
+# fate.exp <- pc_sect(t.chemicals$cid, "Environmental Fate/Exposure Summary",
+#                     domain = "compound", verbose=F)
+# saveRDS(fate.exp, "fate.exp.RDS")
+# # Environmental Effects
+#
+# fate <- pc_sect(t.chemicals$cid, "Environmental Fate",
+#                 domain = "compound", verbose=F)
+# saveRDS(fate, "fate.RDS")
+# # FIELD: Human Health Effects, multiple sources
+# health.eff <- pc_sect(t.chemicals$cid, "Health Effects",
+#                       domain = "compound", verbose=F)
+# target.org <- pc_sect(t.chemicals$cid, "Target Organs",
+#                       domain = "compound", verbose=F)
+# adv.eff <- pc_sect(t.chemicals$cid, "Adverse Effects",
+#                    domain = "compound", verbose=F)
+# signs <- pc_sect(t.chemicals$cid, "Signs and Symptoms",
+#                  domain = "compound", verbose=F)
+# human.health <- bind_rows(health.eff, target.org, adv.eff, signs) %>% arrange(CID)
+# saveRDS(human.health, "human.health.RDS")
+#
+# # Sources/Uses
+# # sources <- pc_sect(t.chemicals$cid, "Uses",
+# #                    domain = "compound", verbose=F) %>% filter(!is.na(Result))
+# # saveRDS(sources, "sources.RDS")
+# sources <- readRDS("sources.RDS")
 
-# info from pubchem from archive
-color <- pc_sect(t.chemicals$cid, "Color / Form", domain = "compound", verbose=F)
-saveRDS(color, "color.RDS")
-odor <- pc_sect(t.chemicals$cid, "Odor", domain = "compound", verbose=F)
-saveRDS(odor, "odor.RDS")
-decomposition <- pc_sect(t.chemicals$cid, "Decomposition", domain = "compound", verbose=F)
-saveRDS(decomposition, "decomposition.RDS")
-# Chemical Releases
 
-fate.exp <- pc_sect(t.chemicals$cid, "Environmental Fate/Exposure Summary",
-                    domain = "compound", verbose=F)
-saveRDS(fate.exp, "fate.exp.RDS")
-# Environmental Effects
 
-fate <- pc_sect(t.chemicals$cid, "Environmental Fate",
-                domain = "compound", verbose=F)
-saveRDS(fate, "fate.RDS")
-# FIELD: Human Health Effects, multiple sources
-health.eff <- pc_sect(t.chemicals$cid, "Health Effects",
-                      domain = "compound", verbose=F)
-target.org <- pc_sect(t.chemicals$cid, "Target Organs",
-                      domain = "compound", verbose=F)
-adv.eff <- pc_sect(t.chemicals$cid, "Adverse Effects",
-                   domain = "compound", verbose=F)
-signs <- pc_sect(t.chemicals$cid, "Signs and Symptoms",
-                 domain = "compound", verbose=F)
-human.health <- bind_rows(health.eff, target.org, adv.eff, signs) %>% arrange(CID)
-saveRDS(human.health, "human.health.RDS")
+# # SOURCE: Effluent Concentrations is likely more suitable
+# eff.conc <- pc_sect(t.chemicals$cid, "Effluent Concentrations",
+#                     domain = "compound", verbose=F) %>% filter(!is.na(Result))
+# saveRDS(eff.conc, "eff.conc.RDS")
 
-# Sources/Uses
-sources <- pc_sect(t.chemicals$cid, "Uses",
-                   domain = "compound", verbose=F) %>% filter(!is.na(Result))
-saveRDS(sources, "sources.RDS")
-# Retain 1st result of SourceName for "Chemical Use (Source)"
-# "Haz-Map, Information on Hazardous Chemicals and Occupational Diseases"
+# # SOURCE: Environmental Water Concentrations
+# env.water <- pc_sect(t.chemicals$cid, "Environmental Water Concentrations",
+#                      domain = "compound", verbose=F) %>% filter(!is.na(Result))
+# saveRDS(env.water, "env.water.RDS")
+
+# # Removal Technologies
+# tech <- pc_sect(t.chemicals$cid, "Environmental Biodegradation",
+#                 domain = "compound", verbose=F)
+# saveRDS(tech, "tech.RDS")
+# # Safe Use
+# uses <- pc_sect(t.chemicals$cid, "Preventive Measures",
+#                 domain = "compound", verbose=F)
+# saveRDS(uses, "uses.RDS")
+# # Safe Disposal
+# disposal <- pc_sect(t.chemicals$cid, "Disposal Methods",
+#                     domain = "compound", verbose=F)
+# saveRDS(disposal, "disposal.RDS")
+# # Consumer Products
+# # consum <- pc_sect(head(cid.map.cl2)$cid, "Consumer Uses",
+# #                     domain = "compound", verbose=F)
+#
+# # Exposure Routes
+#
+# exp.routes <-  pc_sect(t.chemicals$cid, "Exposure Routes",
+#                        domain = "compound", verbose=F)
+# saveRDS(exp.routes, "exp.routes.RDS")
+# # Hormetic Effects
+#
+# carcin <- pc_sect(t.chemicals$cid, "Evidence for Carcinogenicity",
+#                   domain = "compound", verbose=F)
+# saveRDS(carcin, "carcin.RDS")
+
+# combine Pubmed info
+
+
+color <- readRDS("color.RDS")
+odor <- readRDS("odor.RDS")
+decomposition <- readRDS("decomposition.RDS")
+fate.exp <- readRDS("fate.exp.RDS")
+fate <- readRDS("fate.RDS")
+human.health <- readRDS("human.health.RDS")
+
+sources <- readRDS("sources.RDS")
+eff.conc <- readRDS("eff.conc.RDS")
+env.water <- readRDS("env.water.RDS")
+
+tech <- readRDS("tech.RDS")
+uses <- readRDS("uses.RDS")
+disposal <- readRDS("disposal.RDS")
+exp.routes <- readRDS("exp.routes.RDS")
+carcin <- readRDS("carcin.RDS")
+
+# # Retain 1st result of SourceName for "Chemical Use (Source)"
+# # "Haz-Map, Information on Hazardous Chemicals and Occupational Diseases"
 # Chemical Use (souce)
 chem.use <- sources %>%
   filter(SourceName=="Haz-Map, Information on Hazardous Chemicals and Occupational Diseases") %>%
   group_by(CID) %>% summarise(Name = first(Name),
                               Result = first(Result))
-
-
 # Source Industry
 industry <- sources %>%
   group_by(CID) %>% summarise(Name = first(Name),
                               Result =
                                 Result[grepl("Category: Industry", Result,
                                              ignore.case = TRUE)][1])
+info_types <- c(
+  color = "Appearance",
+  fate.exp = "Chemical Releases",
+  fate = "Environmental Effects",
+  human.health = "Human Health Effects",
+  tech = "Removal Technologies",
+  disposal = "Safe Disposal",
+  exp.routes = "Exposure Routes",
+  carcin = "Hormetic Effects",
+  odor = "Odor",
+  decomposition = "Decomposition",
+  chem.use = "Chemical Use",
+  industry = "Source Industry",
+  uses = "Safe Use",
+  eff.conc = "Sources Facility/ Location",
+  env.water = "Sources Facility/ Location"
+)
 
+for (x in names(info_types)) {
+  assign(
+    x,
+    get(x) %>% mutate(info_type = info_types[[x]])
+  )
+}
 
-# SOURCE: Effluent Concentrations is likely more suitable
-eff.conc <- pc_sect(t.chemicals$cid, "Effluent Concentrations",
-                    domain = "compound", verbose=F) %>% filter(!is.na(Result))
-saveRDS(eff.conc, "eff.conc.RDS")
-# SOURCE: Environmental Water Concentrations
-env.water <- pc_sect(t.chemicals$cid, "Environmental Water Concentrations",
-                     domain = "compound", verbose=F) %>% filter(!is.na(Result))
-saveRDS(env.water, "env.water.RDS")
-# FIELD: Chemical Entry Points
-# SOUCRE: Environmental Fate / Exposure Summary
-entry <- pc_sect(t.chemicals$cid, "Environmental Fate / Exposure Summary",
-                 domain = "compound", verbose=F)
-saveRDS(entry, "entry.RDS")
-# Removal Technologies
-tech <- pc_sect(t.chemicals$cid, "Environmental Biodegradation",
-                domain = "compound", verbose=F)
-saveRDS(tech, "tech.RDS")
-# Safe Use
-uses <- pc_sect(t.chemicals$cid, "Preventive Measures",
-                domain = "compound", verbose=F)
-saveRDS(uses, "uses.RDS")
-# Safe Disposal
-disposal <- pc_sect(t.chemicals$cid, "Disposal Methods",
-                    domain = "compound", verbose=F)
-saveRDS(disposal, "disposal.RDS")
-# Consumer Products
-# consum <- pc_sect(head(cid.map.cl2)$cid, "Consumer Uses",
-#                     domain = "compound", verbose=F)
+t.info0 <- bind_rows(
+  mget(names(info_types))
+) %>%
+  filter(!is.na(Result), !is.na(Name), !is.na(CID)) %>%
+  select(-SourceName, -SourceID)
 
-# Exposure Routes
+t.info1 <- t.info0 %>%
+  group_by(CID, Name, info_type) %>%
+  summarise(
+    Result = paste(unique(na.omit(Result)), collapse = ". "),
+    .groups = "drop"
+  )
 
-exp.routes <-  pc_sect(t.chemicals$cid, "Exposure Routes",
-                       domain = "compound", verbose=F)
-saveRDS(exp.routes, "exp.routes.RDS")
-# Hormetic Effects
+t.info2 <- t.info1 %>% left_join(t.chemicals %>% select(cid, inchikey),
+                                 join_by(CID == cid)) %>%
+  mutate(pk = paste0(inchikey, "_", info_type)) %>%
+  select(pk, inchikey, CID, info_type, content = Result)
 
-carcin <- pc_sect(t.chemicals$cid, "Evidence for Carcinogenicity",
-                  domain = "compound", verbose=F)
-saveRDS(carcin, "carcin.RDS")
-
-
+saveRDS(t.info2, "t.info2.rds")
+openxlsx::write.xlsx(t.info2, "CEC_Table_Information_20260812.xlsx")
 
 # do we need any info from epa? unlikely?
-unique(epa.info.clean$propName)
+# unique(epa.info.clean$propName)
 # pick the ones needed
 # props.properties2 <-
 
