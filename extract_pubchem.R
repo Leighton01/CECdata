@@ -417,6 +417,7 @@ t.chemicals <- clean.all %>% left_join(t.properties.selected %>%
   select(-inchikey.x, -inchikey.y) %>% distinct()
 
 saveRDS(t.chemicals, "t.chemicals.RDS")
+t.chemicals <- readRDS("t.chemicals.RDS")
 saveRDS(t.properties.selected, "t.properties.selected.RDS")
 
 write.xlsx(t.chemicals,
@@ -630,6 +631,7 @@ t.info2 <- t.info1 %>% left_join(t.chemicals %>% select(cid, inchikey),
   select(pk, inchikey, CID, info_type, content = Result)
 
 saveRDS(t.info2, "t.info2.rds")
+t.info2 <- readRDS("t.info2.rds")
 openxlsx::write.xlsx(t.info2, "CEC_Table_Information_20260812.xlsx")
 
 # do we need any info from epa? unlikely?
